@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f4f6fb;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: #141b2d;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin custom scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd3e1 transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #cbd3e1;
+  border-radius: 999px;
+}
+
+/* ACORD form field look */
+.acord-cell {
+  border: 1px solid #c9d0dc;
+}
+.acord-input {
+  width: 100%;
+  background: transparent;
+  outline: none;
+  font-size: 11px;
+  line-height: 1.15;
+  color: #10233f;
+}
+.acord-input::placeholder {
+  color: #9aa6b8;
+}
+.acord-input[readonly] {
+  cursor: default;
+}
+.acord-editing .acord-input:not([readonly]) {
+  background: #fff8f3;
+  border-radius: 3px;
+}
+
+.field-glow {
+  box-shadow: 0 0 0 2px rgba(242, 101, 34, 0.25);
+  border-radius: 3px;
+}
+
+/* Print: only the certificate sheet */
+@media print {
+  body {
+    background: #fff;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-area {
+    box-shadow: none !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+  @page {
+    size: letter;
+    margin: 0.4in;
+  }
+}
