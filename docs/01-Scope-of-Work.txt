@@ -1,0 +1,492 @@
+===============================================================================
+ CERTFLOW - SCOPE OF WORK
+ ACORD 25 Certificate of Insurance Automation
+===============================================================================
+
+ Client            [CLIENT / AGENCY NAME]
+ Supplier          Nestnic Solutions
+ Document owner    [YOUR NAME]
+ Version           [0.1 DRAFT]
+ Date              [DD MONTH YYYY]
+ Status            [DRAFT / FOR REVIEW / APPROVED]
+
+
+-------------------------------------------------------------------------------
+ 1. PURPOSE
+-------------------------------------------------------------------------------
+
+This document defines the work to be performed in delivering CertFlow, a
+system that automates the issuance of ACORD 25 Certificates of Liability
+Insurance for a trucking-focused insurance agency.
+
+It states what is included, what is explicitly excluded, what the client must
+provide, and how completion is judged.
+
+
+-------------------------------------------------------------------------------
+ 2. BACKGROUND AND BUSINESS PROBLEM
+-------------------------------------------------------------------------------
+
+An agency writing commercial trucking receives a continuous stream of requests
+for certificates of insurance. They arrive by email from brokers, shippers,
+load boards and lenders. Each one requires a person to:
+
+   (a) read the email and work out which insured it concerns;
+   (b) look that insured up in the agency management system;
+   (c) transcribe policy numbers, limits, dates and the vehicle schedule onto
+       an ACORD 25 form;
+   (d) overflow the vehicle list onto an ACORD 101 when it does not fit;
+   (e) email the finished certificate back to whoever asked.
+
+Steps (a) through (d) are mechanical and are where transcription errors enter.
+A certificate that misstates coverage is a professional liability exposure for
+the agency, not merely an inconvenience.
+
+CertFlow automates (a) through (d) and leaves (e) as a deliberate human act.
+
+Where step (a) cannot be settled - because two of the agency's own clients are
+named too alike to tell apart - the system asks the requester directly rather
+than putting an unanswerable question in front of a reviewer. See 5.12.
+
+
+-------------------------------------------------------------------------------
+ 3. BUSINESS OBJECTIVE
+-------------------------------------------------------------------------------
+
+ 3.1  Reduce the handling of a routine certificate request from minutes of
+      manual transcription to a review of a finished document.
+
+ 3.2  Eliminate transcription as a source of error. Every value printed on a
+      certificate is read from a policy record; none is typed by an operator
+      at issuance time.
+
+ 3.3  Preserve human accountability. No certificate is issued or sent without
+      a named person approving it, and that approval is recorded immutably.
+
+ 3.4  Produce a defensible record. For any certificate ever issued, the agency
+      can show what was sent, to whom, when, by whom, and what the underlying
+      policy data said on that date.
+
+
+-------------------------------------------------------------------------------
+ 4. GUIDING PRINCIPLE
+-------------------------------------------------------------------------------
+
+The system is built on one rule, and it governs every design decision in it:
+
+      THE EMAIL DECIDES WHAT WAS ASKED FOR.
+      THE DATABASE DECIDES WHAT IS TRUE.
+
+Interpretation of an inbound email may only ever select WHICH insured a
+request concerns. It has no mechanism to supply a policy number, a limit, a
+date or a coverage. Those are read from the agency's own records.
+
+The consequence is that the worst outcome of a misread email is that a
+reviewer is shown the wrong company and rejects it. The system is
+structurally incapable of producing a certificate that asserts coverage which
+does not exist.
+
+
+-------------------------------------------------------------------------------
+ 5. SCOPE - DELIVERED AND OPERATIONAL
+-------------------------------------------------------------------------------
+
+The following is built, tested and demonstrable today.
+
+ 5.1  MAIL INGESTION
+      Reads a designated mailbox over IMAP. The mailbox is opened read-only,
+      so the system cannot mark, move or delete the agency's mail. Repeated
+      polling is safe: de-duplication is enforced by a database constraint,
+      not by flagging messages as read.
+
+ 5.2  REQUEST FILTERING
+      Classifies each message before it is stored. Mail that is not a
+      certificate request is never written to the database at all. Every
+      skipped message and the reason for skipping it is reported on screen,
+      so a wrong exclusion is reviewable rather than silent.
+
+ 5.3  INSURED IDENTIFICATION
+      Extracts candidate company names from the request and resolves them
+      against the client list using fuzzy matching over legal names and known
+      aliases. Abstains by design: a near-tie between two similarly named
+      companies is routed to a human rather than decided by a narrow margin.
+
+ 5.4  CERTIFICATE HOLDER IDENTIFICATION
+      Reads the holder from the requester's email signature. This is the only
+      certificate field sourced from the email rather than the database, and
+      necessarily so - the holder is whoever wrote in, and the agency has no
+      record of them until they do.
+
+ 5.5  AUTOMATIC DRAFTING
+      As soon as a request resolves to an insured, the certificate is
+      assembled from that insured's policy, vehicle and party records. A
+      reviewer opens a finished document to check, not an empty one to
+      trigger.
+
+ 5.6  DOCUMENT GENERATION
+      Produces a pixel-accurate ACORD 25 (2025/12 edition), with automatic
+      overflow to an ACORD 101 Additional Remarks Schedule when the vehicle
+      schedule exceeds page one. Line breaking is width-aware, so the
+      on-screen form and the generated PDF break in identical places.
+
+ 5.7  REVIEW AND EDIT
+      An on-screen form overlaid on the actual ACORD artwork. Every field is
+      editable while the certificate is a draft.
+
+ 5.8  APPROVAL AND ISSUANCE
+      A named user approves; the document becomes issued and its content is
+      frozen. Issued certificates are never re-derived from live policy data,
+      because policies renew and a reprint must show what was certified on the
+      day. Corrections create a new revision of the same certificate number,
+      never a new number.
+
+ 5.9  DELIVERY
+      Replies in the original email thread with the PDF attached, so the
+      certificate lands directly beneath the request that asked for it.
+      Delivery is a separate, explicit human action.
+
+      NO CERTIFICATE IS EVER SENT AUTOMATICALLY. The system sends exactly one
+      kind of message on its own - the clarification question at 5.12 - and
+      that carries no coverage, no limits and no document.
+
+ 5.10 CONTINUOUS MONITORING, PUSHED TO THE SCREEN
+      A watcher process holds one connection to the mailbox open. The mail
+      server announces new mail on it, and the same connection is re-checked
+      every couple of seconds as a guarantee. Changes are pushed to the browser;
+      nothing is polled by the reviewer's machine and no page reloads.
+      Measured at 7-8 seconds from a message landing in the mailbox to appearing
+      on screen, with no user interaction. There is no "check for new email"
+      button because there is nothing for it to do.
+
+ 5.11 UNREAD COUNT
+      The dashboard shows how many requests nobody has opened yet. Recorded
+      against the request rather than the browser, so it is the same figure on
+      every machine.
+
+ 5.12 THE SYSTEM ASKS WHEN TWO CLIENTS ARE TOO ALIKE
+      Where a request names something that fits two insureds equally - "Smart
+      Way Solutions Inc" and "Smart Way Solutions LLC" - the system replies to
+      the requester asking which they mean, and offers the reliable way to say
+      so: a USDOT or MC number. Federal identifiers belong to exactly one motor
+      carrier, so the answer resolves the request precisely rather than by
+      similarity. The request waits at "asked the requester" until the reply
+      arrives, then completes on its own.
+
+      This is the ONLY message the system sends without a person pressing
+      something. It carries no coverage, no limits and no document. It can be
+      switched off, in which case those requests go to a reviewer instead.
+
+ 5.13 VEHICLE IDENTIFICATION NUMBERS ARE WITHHELD UNLESS ASKED FOR
+      A fleet schedule with VINs is an inventory of the insured's vehicles.
+      Most requests need limits and dates, not serial numbers, so they are
+      omitted unless the request asks. A reviewer can still add them by hand.
+
+ 5.14 AUTHENTICATION AND TENANT ISOLATION
+      Sign-in through the agency's own identity provider (OIDC). No passwords
+      are stored anywhere in the system. Data separation is enforced by
+      database row-level security, not by application-side filtering.
+
+ 5.15 AUDIT TRAIL
+      Every state change is recorded in an append-only, hash-chained log.
+      Update and delete are revoked at the database level, so immutability is
+      a grant rather than a promise.
+
+ 5.16 VERIFICATION HARNESS
+      236 automated checks across ten suites, including 45 executed in a real
+      browser, plus three opt-in tests that send genuine email and prove the
+      whole chain against a real mailbox.
+
+
+-------------------------------------------------------------------------------
+ 6. SCOPE - REMAINING WORK
+-------------------------------------------------------------------------------
+
+The following is required before production use and is included in this
+engagement.
+
+ 6.1  POLICY DATA INTEGRATION                         [MAJOR - SEE SECTION 7]
+      CertFlow currently reads policy, vehicle and client data from its own
+      database. There is no live connection to an agency management system.
+      Populating and keeping that data current is the single largest piece of
+      remaining work.
+
+ 6.2  PER-TENANT MAILBOX AUTHORISATION
+      Replace the current App Password mechanism with OAuth 2.0 scoped to
+      read-only mail access, so the agency can grant and revoke access without
+      sharing account credentials.
+
+ 6.3  RATE LIMITING
+      Request throttling on all API routes.
+
+ 6.4  SCHEDULED DATA PURGE
+      A background job enforcing the retention clock already recorded against
+      every stored email. The mechanism exists and is currently run manually.
+
+ 6.5  AUDIT LOG VIEWER
+      A user interface over the audit trail. The data is complete and
+      queryable today; it has no screen.
+
+ 6.6  FIELD-LEVEL ENCRYPTION ACTIVATION
+      Envelope encryption with per-tenant keys is implemented and tested but
+      is not yet wired to the columns it is intended to protect.
+
+ 6.7  PRODUCTION DEPLOYMENT
+      Environment provisioning, secret management, backup verification,
+      monitoring and alerting.
+
+ 6.8  USER ACCEPTANCE TESTING AND HANDOVER
+      Including operator documentation and training.
+
+
+-------------------------------------------------------------------------------
+ 7. CRITICAL DEPENDENCY - SOURCE OF POLICY DATA
+-------------------------------------------------------------------------------
+
+This section is called out separately because it determines the effort,
+timeline and viability of the whole engagement, and it cannot be resolved by
+the supplier alone.
+
+Every value CertFlow prints is read from a policy record. Those records must
+get into the system. There are three possible routes:
+
+   ROUTE A - LIVE INTEGRATION
+      A direct connection to the agency management system (AMS360, Applied
+      Epic or equivalent). Requires vendor API access, which is typically
+      licensed separately and may require the vendor's approval. Effort
+      depends entirely on what that vendor exposes.
+
+   ROUTE B - SCHEDULED IMPORT
+      A recurring export from the management system, imported on a schedule.
+      Lower integration risk. Data is only as fresh as the export cadence,
+      which must be short enough that a certificate cannot be issued against
+      a lapsed policy.
+
+   ROUTE C - MANAGED WITHIN CERTFLOW
+      Policy and fleet data maintained directly in CertFlow. No integration
+      required, but this creates a second system of record and is not
+      recommended for an agency of meaningful size.
+
+ ACTION REQUIRED: The client must confirm which route applies, and provide the
+ relevant vendor contacts or export samples, before this element can be
+ estimated or scheduled.
+
+ Until this is resolved, all other work proceeds against representative data.
+
+
+-------------------------------------------------------------------------------
+ 8. OUT OF SCOPE
+-------------------------------------------------------------------------------
+
+The following are explicitly excluded unless separately agreed in writing:
+
+  -  ACORD forms other than the 25 and 101.
+  -  Certificate issuance for lines of business other than commercial
+     trucking.
+  -  Policy administration, rating, quoting, binding or endorsement.
+  -  Claims handling of any kind.
+  -  Accounting, commission tracking or invoicing.
+  -  Migration of historical certificates issued before go-live.
+  -  Native mobile applications. The interface is responsive but
+     browser-based.
+  -  Mail providers other than Google Workspace / Gmail in this phase.
+  -  Procurement of the ACORD forms licence (see Section 9.1).
+  -  Third-party licence fees, hosting costs and vendor API fees.
+  -  Legal or regulatory review of the agency's compliance obligations.
+
+
+-------------------------------------------------------------------------------
+ 9. CLIENT RESPONSIBILITIES
+-------------------------------------------------------------------------------
+
+ 9.1  ACORD FORMS LICENCE
+      ACORD forms are copyrighted. The client is responsible for holding a
+      valid licence permitting programmatic reproduction of the ACORD 25 and
+      ACORD 101. This is a precondition of production use and is a long-lead
+      item.
+
+ 9.2  A DEDICATED MAILBOX
+      A Google Workspace mailbox used solely for certificate requests, with
+      administrative consent to authorise read access.
+
+ 9.3  IDENTITY PROVIDER ACCESS
+      Registration of CertFlow as an application in the client's Google
+      Workspace or Microsoft Entra tenant.
+
+ 9.4  POLICY DATA ACCESS
+      Per Section 7.
+
+ 9.5  A NAMED BUSINESS OWNER
+      A single point of contact empowered to make decisions on form content,
+      standard endorsement wording, and acceptance.
+
+ 9.6  REVIEWER AVAILABILITY
+      The system requires a human to approve and send. The client must
+      identify who performs this role and during which hours.
+
+ 9.7  TIMELY REVIEW
+      Feedback on deliverables within [N] working days of submission.
+
+
+-------------------------------------------------------------------------------
+ 10. ASSUMPTIONS
+-------------------------------------------------------------------------------
+
+ 10.1  Requests arrive predominantly in English, as text or HTML email.
+       Certificate requests contained only inside scanned attachments are not
+       interpreted.
+
+ 10.2  The ACORD 25 (2025/12) and ACORD 101 (2008/01) editions remain current
+       for the term of this engagement. A new edition requires re-derivation
+       of the coordinate map and is a change request.
+
+ 10.3  Certificate volumes remain within [N] requests per day.
+
+ 10.4  A single agency tenant is in scope for this phase. The architecture is
+       multi-tenant, but only one tenant is being commissioned.
+
+ 10.5  Standard endorsement and description-of-operations wording is supplied
+       by the client and printed verbatim. The system does not generate legal
+       language.
+
+
+-------------------------------------------------------------------------------
+ 11. DELIVERABLES
+-------------------------------------------------------------------------------
+
+ D1   Working CertFlow application deployed to a client-accessible
+      environment.
+ D2   Configured database holding the client's producer, insured, policy,
+      vehicle and holder records.
+ D3   Mailbox and identity provider integration, live.
+ D4   Automated verification suite, runnable by the client.
+ D5   System architecture documentation.
+ D6   Operator guide covering review, approval, correction and delivery.
+ D7   Administrator guide covering configuration, retention and user
+      management.
+ D8   Handover session(s) with the nominated business owner and reviewers.
+
+
+-------------------------------------------------------------------------------
+ 12. ACCEPTANCE CRITERIA
+-------------------------------------------------------------------------------
+
+The engagement is complete when all of the following are demonstrated on the
+client's own data, in the client's own environment:
+
+ A1  A genuine certificate request emailed to the production mailbox appears
+     on the dashboard without manual intervention.
+
+ A2  The insured is correctly identified for [N] out of [N] representative
+     requests supplied by the client.
+
+ A3  Requests the system cannot confidently identify are routed to a human
+     rather than guessed.
+
+ A4  A generated ACORD 25 matches a certificate produced manually by the
+     client's own staff, field for field, for [N] agreed test cases.
+
+ A5  Vehicle schedules exceeding page one overflow correctly to an ACORD 101.
+
+ A6  An approved certificate is delivered as a threaded reply with the PDF
+     attached, to an address the reviewer confirmed.
+
+ A7  Every action above appears in the audit log with actor, timestamp and
+     subject.
+
+ A8  A user whose access is withdrawn is denied on their next request.
+
+ A9  The full automated verification suite passes in the client environment.
+
+
+-------------------------------------------------------------------------------
+ 13. PHASES AND MILESTONES
+-------------------------------------------------------------------------------
+
+ Phase                                     Start       Finish     Owner
+ -----------------------------------------------------------------------
+ P0  Data source decision (Section 7)      [DATE]      [DATE]     Client
+ P1  Policy data integration               [DATE]      [DATE]     Supplier
+ P2  Mailbox + identity provider cutover   [DATE]      [DATE]     Joint
+ P3  Production hardening (6.3 - 6.6)      [DATE]      [DATE]     Supplier
+ P4  Deployment and environment setup      [DATE]      [DATE]     Supplier
+ P5  User acceptance testing               [DATE]      [DATE]     Client
+ P6  Training and handover                 [DATE]      [DATE]     Joint
+ P7  Go-live                               [DATE]      [DATE]     Joint
+ P8  Warranty / hypercare period           [DATE]      [DATE]     Supplier
+
+ NOTE: P1 cannot be scheduled until P0 concludes. All dates downstream of P1
+ are therefore provisional.
+
+
+-------------------------------------------------------------------------------
+ 14. COMMERCIAL TERMS
+-------------------------------------------------------------------------------
+
+ Engagement model      [FIXED PRICE / TIME AND MATERIALS / RETAINER]
+ Total fee             [AMOUNT] [CURRENCY]
+ Payment schedule      [E.G. 30% ON SIGNATURE, 40% AT P4, 30% AT GO-LIVE]
+ Rate card             [IF APPLICABLE]
+ Expenses              [TREATMENT]
+ Warranty period       [N] days from go-live
+ Support thereafter    [SEPARATE AGREEMENT / INCLUDED / NOT INCLUDED]
+
+ Excluded from the above: ACORD licence fees, agency management system API
+ fees, hosting, and any third-party subscription costs.
+
+
+-------------------------------------------------------------------------------
+ 15. CHANGE CONTROL
+-------------------------------------------------------------------------------
+
+Any variation to this scope is raised as a written change request stating the
+change, its effect on cost, and its effect on schedule. Work on a change
+begins only after both parties sign it.
+
+The following are treated as changes, not defects:
+
+  -  A new or revised ACORD form edition.
+  -  Additional ACORD forms.
+  -  A change of agency management system or data source after P0.
+  -  Additional tenants or agencies.
+  -  Mail providers beyond Google Workspace.
+
+
+-------------------------------------------------------------------------------
+ 16. RISKS
+-------------------------------------------------------------------------------
+
+ R1  Policy data source unresolved (Section 7). Highest risk on the
+     engagement. Mitigation: resolve at P0 before committing downstream dates.
+
+ R2  Agency management system vendor does not expose a usable API, or charges
+     prohibitively for it. Mitigation: Route B (scheduled import) as fallback.
+
+ R3  ACORD licence not in place at go-live. Mitigation: client to begin the
+     application immediately.
+
+ R4  Request phrasing in the client's real mail differs materially from the
+     patterns tested. Mitigation: client to supply [N] real anonymised
+     requests during P0 for calibration.
+
+ R5  Reviewer capacity. The system removes transcription, not judgement. If
+     nobody approves certificates, nothing is sent.
+
+
+-------------------------------------------------------------------------------
+ 17. SIGN-OFF
+-------------------------------------------------------------------------------
+
+ For the Client                        For Nestnic Solutions
+
+ Name    ______________________        Name    ______________________
+
+ Title   ______________________        Title   ______________________
+
+ Date    ______________________        Date    ______________________
+
+ Signature ____________________        Signature ____________________
+
+
+===============================================================================
+ END OF DOCUMENT
+===============================================================================

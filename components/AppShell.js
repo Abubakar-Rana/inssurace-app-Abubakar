@@ -4,150 +4,160 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "./icons";
+import { signOut, useStore } from "@/lib/store";
 
-function NavItem({ href, icon: I, label, active, badge }) {
+function initials(name) {
+  if (!name) return "··";
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0].toUpperCase())
+    .join("");
+}
+
+function NavItem({ href, icon: I, label, active, count }) {
   return (
     <Link
       href={href}
-      className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition
-        ${active ? "bg-brand-500 text-white shadow-sm" : "text-ink-600 hover:bg-white hover:text-ink-900"}`}
+      className={`flex h-[34px] items-center gap-[11px] rounded-[7px] px-2.5 text-[13.5px] transition ${
+        active ? "bg-[#e8eaee] font-semibold text-ink-900" : "font-medium text-ink-600 hover:bg-[#eef0f3]"
+      }`}
     >
-      <I className={active ? "text-white" : "text-ink-500 group-hover:text-brand-500"} width={19} height={19} />
+      <I width={17} height={17} />
       <span className="flex-1">{label}</span>
-      {badge ? (
-        <span
-          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-            active ? "bg-white/25 text-white" : "bg-brand-100 text-brand-700"
-          }`}
-        >
-          {badge}
-        </span>
-      ) : null}
+      {count ? <span className="text-[12px] font-semibold text-ink-600">{count}</span> : null}
     </Link>
   );
 }
 
-function Logo() {
+/**
+ * Whether this screen is actually current.
+ *
+ * Stated plainly and quietly: a server-side watcher holds one connection to
+ * the mailbox open, and this is the readout of it. It gets no colour, because
+ * a green light for "working normally" is decoration — what matters is that a
+ * DROPPED feed cannot look like a quiet mailbox.
+ */
+function FeedState({ live }) {
+  const label =
+    live === "live" ? "Watching mailbox" : live === "connecting" ? "Connecting…" : "Reconnecting…";
+  const title =
+    live === "live"
+      ? "The server is watching the mailbox and pushing changes to this screen."
+      : live === "connecting"
+        ? "Connecting to the live feed."
+        : "The live feed dropped. Reconnecting automatically — the list still refreshes on its own, just more slowly.";
+
   return (
-    <Link href="/" className="flex items-center gap-2.5">
-      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-500 text-white shadow-sm">
-        <Icon.Shield width={20} height={20} />
-      </span>
-      <span className="text-[19px] font-bold tracking-tight text-ink-900">
-        Cert<span className="text-brand-500">Flow</span>
-      </span>
-    </Link>
+    <div
+      title={title}
+      className="flex h-10 items-center gap-2 border-t border-line px-5 text-[11.5px] text-ink-500"
+    >
+      <span
+        className={`h-1.5 w-1.5 flex-none rounded-full ${
+          live === "offline" ? "bg-ink-300" : "bg-ink-600"
+        } ${live === "live" ? "motion-safe:animate-breathe" : "motion-safe:animate-pulse"}`}
+      />
+      {label}
+    </div>
   );
 }
 
 export default function AppShell({ children, inboxCount = 0 }) {
   const pathname = usePathname();
-  const onInbox = pathname === "/";
-
-  const [collapsed, setCollapsed] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const store = useStore();
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
-    setMounted(true);
-    try {
-      if (localStorage.getItem("certflow.collapsed") === "1") setCollapsed(true);
-    } catch (e) {
-      /* ignore */
-    }
+    fetch("/api/auth/session")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => body && setUser(body.user))
+      .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    if (!mounted) return;
-    try {
-      localStorage.setItem("certflow.collapsed", collapsed ? "1" : "0");
-    } catch (e) {
-      /* ignore */
-    }
-  }, [collapsed, mounted]);
-
   return (
-    <div className="min-h-screen">
-      {/* Sidebar */}
-      <aside
-        className={`no-print fixed inset-y-0 left-0 z-30 w-64 flex-col border-r border-ink-900/5 bg-[#eef1f8] px-4 py-5 transition-transform duration-300 ${
-          collapsed ? "hidden" : "hidden lg:flex"
-        }`}
-      >
-        <div className="mb-7 flex items-center justify-between px-1">
-          <Logo />
-          <button
-            onClick={() => setCollapsed(true)}
-            title="Collapse sidebar"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-500 transition hover:bg-white hover:text-ink-800"
-          >
-            <Icon.Chevron width={17} height={17} className="rotate-180" />
-          </button>
-        </div>
+    <div className="flex h-screen overflow-hidden bg-white">
+      {/* ───────────────────────── sidebar ───────────────────────── */}
+      <aside className="no-print hidden w-[232px] flex-none flex-col border-r border-line bg-surface-shell lg:flex">
+        <Link href="/" className="flex h-14 items-center gap-2.5 px-[18px]">
+          <span className="flex h-[26px] w-[26px] items-center justify-center rounded-[7px] bg-brand-500 text-white">
+            <Icon.Shield width={15} height={15} strokeWidth={2} />
+          </span>
+          <span className="text-[15px] font-semibold tracking-[-0.01em] text-ink-900">CertFlow</span>
+        </Link>
 
-        <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Workspace</p>
-        <nav className="flex flex-col gap-1">
-          <NavItem href="/" icon={Icon.Inbox} label="Request Inbox" active={onInbox} badge={inboxCount || undefined} />
-          <NavItem href="/" icon={Icon.Doc} label="Certificates" active={false} />
-          <NavItem href="/" icon={Icon.Send} label="Distributions" active={false} />
-          <NavItem href="/" icon={Icon.Database} label="AMS Sync" active={false} />
+        {/* Only destinations that exist. A nav item that goes nowhere is worse
+            than a shorter nav. */}
+        <nav className="flex flex-col gap-px px-2.5 py-2">
+          <NavItem href="/" icon={Icon.Inbox} label="Inbox" active={pathname === "/"} count={inboxCount} />
+          <NavItem
+            href="/certificates"
+            icon={Icon.Doc}
+            label="Certificates"
+            active={pathname.startsWith("/certificates")}
+          />
         </nav>
 
-        <div className="mt-auto rounded-2xl bg-white p-4 shadow-card">
-          <div className="mb-1.5 flex items-center gap-2 text-brand-600">
-            <Icon.Sparkle width={16} height={16} />
-            <span className="text-xs font-bold uppercase tracking-wide">Prototype</span>
+        <div className="flex-1" />
+
+        <FeedState live={store.live} />
+
+        <div className="flex items-center gap-2.5 px-3.5 pb-3.5 pt-2.5">
+          <span className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-full bg-[#e0e3e8] text-[10.5px] font-semibold text-ink-600">
+            {initials(user?.name)}
+          </span>
+          <div className="min-w-0 leading-tight">
+            <p className="truncate text-[12px] font-medium text-ink-700">{user?.name || "…"}</p>
+            <p className="truncate text-[11px] text-ink-400">{user?.email || ""}</p>
           </div>
-          <p className="text-[12px] leading-snug text-ink-600">
-            Triggers &amp; AMS data are simulated. Editing &amp; distribution flows are fully functional.
-          </p>
+          <button
+            onClick={signOut}
+            title="Sign out"
+            className="ml-auto flex h-7 w-7 flex-none items-center justify-center rounded-md text-ink-400 transition hover:bg-[#e8eaee] hover:text-ink-700"
+          >
+            <Icon.Chevron width={15} height={15} />
+          </button>
         </div>
       </aside>
 
-      {/* Main column */}
-      <div className={`transition-[padding] duration-300 ${collapsed ? "" : "lg:pl-64"}`}>
-        {/* Topbar */}
-        <header className="no-print sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-ink-900/5 bg-white/80 px-4 backdrop-blur sm:px-5">
-          {/* Fold / unfold toggle (desktop) */}
-          <button
-            onClick={() => setCollapsed((c) => !c)}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="hidden h-9 w-9 items-center justify-center rounded-lg text-ink-500 transition hover:bg-ink-900/5 hover:text-ink-800 lg:inline-flex"
-          >
-            <Icon.PanelLeft width={19} height={19} />
-          </button>
-
-          {/* Logo: always on mobile, on desktop only when collapsed */}
-          <div className={`flex items-center ${collapsed ? "lg:flex" : "lg:hidden"}`}>
-            <Logo />
-          </div>
-
-          <div className="ml-1 hidden items-center gap-2 rounded-full bg-ink-900/5 px-3.5 py-1.5 text-sm text-ink-500 sm:flex">
-            <Icon.Database width={15} height={15} className="text-emerald-500" />
-            <span className="font-medium text-ink-700">AMS360</span>
-            <span className="text-ink-400">·</span>
-            <span className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Connected
+      {/* ───────────────────────── main column ───────────────────────── */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Deliberately thin. The screen's content carries the work; the bar
+            carries identity and how much is unlooked-at. */}
+        <header className="no-print flex h-14 flex-none items-center gap-4 border-b border-line px-[22px]">
+          <Link href="/" className="flex items-center gap-2.5 lg:hidden">
+            <span className="flex h-[26px] w-[26px] items-center justify-center rounded-[7px] bg-brand-500 text-white">
+              <Icon.Shield width={15} height={15} strokeWidth={2} />
             </span>
-          </div>
+            <span className="text-[15px] font-semibold tracking-[-0.01em] text-ink-900">CertFlow</span>
+          </Link>
 
-          <div className="ml-auto flex items-center gap-3">
-            <div className="hidden items-center gap-2 rounded-full bg-ink-900/5 px-3 py-1.5 text-sm text-ink-600 md:flex">
-              <Icon.Mail width={15} height={15} className="text-brand-500" />
-              <span className="font-medium">coi@newhopeins.com</span>
-            </div>
-            <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-brand-600 text-sm font-bold text-white">
-                AM
-              </div>
-              <div className="hidden leading-tight sm:block">
-                <p className="text-sm font-semibold text-ink-900">Axel Moreno</p>
-                <p className="text-[11px] text-ink-500">Commercial Lines</p>
-              </div>
-            </div>
-          </div>
+          <div className="flex-1" />
+
+          {/* The only number here that means "work you have not looked at". */}
+          {store.unreadCount > 0 && (
+            <span
+              className="text-[12.5px] text-ink-500"
+              title="Requests nobody has opened yet. Opening one clears it."
+            >
+              {store.unreadCount} unread
+            </span>
+          )}
+          {/* The avatar lives in the sidebar on desktop, so both it and its
+              divider are mobile-only — otherwise the bar ends on a rule with
+              nothing after it. */}
+          <span className="h-[18px] w-px bg-line lg:hidden" />
+          <span className="flex h-[26px] w-[26px] items-center justify-center rounded-full bg-[#e0e3e8] text-[10.5px] font-semibold text-ink-600 lg:hidden">
+            {initials(user?.name)}
+          </span>
         </header>
 
-        <main className="px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+        {/* Scrolls. The inbox fills exactly this box and scrolls its own list
+            inside it, so no outer bar appears there — but a document page is
+            taller than the window and must be able to move. `overflow-hidden`
+            here silently trapped the certificate pages. */}
+        <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>
   );

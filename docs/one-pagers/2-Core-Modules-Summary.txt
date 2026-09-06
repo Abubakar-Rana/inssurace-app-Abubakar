@@ -1,0 +1,73 @@
+===============================================================================
+ CERTFLOW - THE PARTS OF THE SYSTEM
+ Owner [YOUR NAME]  |  Date [DD MMM YYYY]
+===============================================================================
+
+ Eighteen parts. Each does one job and hands over to the next. Listed in the
+ order a request passes through them.
+
+  #   What it does                                              Status
+  -------------------------------------------------------------------------
+  1   Reads the agency mailbox                                  Working (*)
+  2   Ignores mail that is not a certificate request            Working
+  3   Reads the company name out of the email                   Working
+  4   Matches that name to a client on the agency's books       Working
+  5   Asks the requester when two clients are too alike         Working
+  6   Works out who to address the certificate to               Working
+  7   Decides whether to print vehicle ID numbers               Working
+  8   Gathers the policy, vehicle and company details           Working
+  9   Lays it all onto the industry form                        Working
+ 10   Controls draft / issued / corrected status                Working
+ 11   Emails the certificate back to whoever asked              Working
+ 12   Watches the mailbox and pushes changes to the screen      Working
+ 13   The screen staff use to review and approve                Working
+ 14   The screen for requests the system could not identify     Working
+ 15   Staff sign-in and keeping agencies' data separate         Nearly (**)
+ 16   The permanent record of who did what                      Nearly (***)
+ 17   Locking away sensitive data and deleting it on time       Part-built
+ 18   The automated test pack that proves all of the above      Working
+
+   (*)   Works, but connects to email in a way that is fine for our own
+         test mailbox and not safe enough for a customer's. Replacing it is
+         a small, contained job.
+  (**)   Built and tested. Still needs the client to register us with their
+         staff sign-in system.
+ (***)   The record is complete and cannot be tampered with. There is no
+         screen to view it on yet.
+
+ NOT BUILT AT ALL
+ A connection to the agency's main system, so that policy data flows in by
+ itself. Everything above currently reads from our own database.
+
+ THE FOUR PARTS WORTH UNDERSTANDING
+
+ MATCHING THE COMPANY (part 4). The system will refuse to guess. If two
+ clients have similar names it stops rather than picking one. That is the
+ design working, not a fault. Giving us the alternative spellings the agency
+ already knows about reduces how often it happens.
+
+ ASKING THE REQUESTER (part 5). When two clients fit equally - say "Smart Way
+ Solutions Inc" and "Smart Way Solutions LLC" - the system emails the person
+ who asked, requesting a USDOT or MC number. Those numbers belong to exactly
+ one carrier, so the answer settles it precisely. The request then completes on
+ its own. THIS IS THE ONLY MESSAGE THE SYSTEM SENDS WITHOUT A PERSON, it
+ contains no coverage or document, and it can be switched off.
+
+ VEHICLE ID NUMBERS (part 7). Left off unless the request asks for them. A full
+ vehicle list with VINs is an inventory of the insured's trucks, and it goes to
+ a third party the insured did not choose.
+
+ SENDING (part 11). No certificate is ever sent automatically. A person
+ approves, then a person sends. The reply goes back into the original email
+ conversation with the document attached.
+
+ HOW WE KNOW IT WORKS
+
+ 236 automated checks run on demand, including 45 that drive a real web browser
+ through the whole job, plus three opt-in tests that send genuine email.
+ Roughly half the checks confirm the system correctly REFUSES to act when it
+ should not.
+
+===============================================================================
+ Full detail: docs/02-Core-Modules.txt
+===============================================================================

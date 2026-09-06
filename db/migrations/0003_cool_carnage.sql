@@ -1,0 +1,1 @@
+ALTER TABLE "coi_requests" ADD COLUMN "body_text" text;

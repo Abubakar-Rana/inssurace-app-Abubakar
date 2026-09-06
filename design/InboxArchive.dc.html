@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #33415c; text-decoration: none; } a:hover { color: #141b2d; }
+    @keyframes breathe { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
+    /* One line, 44px. Finished work is for finding, not for reading. */
+    .r { display: grid; grid-template-columns: 26px 168px minmax(0, 1fr) 150px 96px 66px; align-items: center; gap: 14px; height: 44px; padding: 0 22px; border-bottom: 1px solid #f2f4f7; }
+    .c { font-size: 13px; color: #4b5a76; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .m { font-size: 12px; color: #a8b0be; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .day { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 22px; background: #f7f8fa; border-bottom: 1px solid #e6e8ec; }
+    .day span:first-child { font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #64748b; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; display: flex; background: #ffffff; color: #141b2d; overflow: hidden;">
+
+  <div style="width: 232px; flex: none; background: #f7f8fa; border-right: 1px solid #e6e8ec; display: flex; flex-direction: column;">
+    <div style="height: 56px; display: flex; align-items: center; gap: 9px; padding: 0 18px;">
+      <span style="width: 26px; height: 26px; border-radius: 7px; background: {{accent}}; display: flex; align-items: center; justify-content: center;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3z" /><path d="M9 12l2 2 4-4" /></svg>
+      </span>
+      <span style="font-size: 15px; font-weight: 600; letter-spacing: -0.01em;">CertFlow</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 1px; padding: 8px 10px;">
+      <div style="display: flex; align-items: center; gap: 11px; height: 34px; padding: 0 10px; border-radius: 7px; background: #e8eaee; font-size: 13.5px; font-weight: 600;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l2.5-7A2 2 0 018.4 4.7h7.2A2 2 0 0117.5 6L20 13" /><path d="M4 13h4l1.5 2.5h5L16 13h4v4a2 2 0 01-2 2H6a2 2 0 01-2-2z" /></svg>
+        <span style="flex-grow: 1;">Inbox</span>
+        <span style="font-size: 12px; font-weight: 600; color: #4b5a76;">12</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 11px; height: 34px; padding: 0 10px; border-radius: 7px; font-size: 13.5px; font-weight: 500; color: #4b5a76;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" /><path d="M14 3v5h5M9 13h6M9 17h6" /></svg>
+        <span style="flex-grow: 1;">Certificates</span>
+      </div>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 8px; padding: 0 20px; height: 40px; border-top: 1px solid #e6e8ec;">
+      <span style="width: 6px; height: 6px; border-radius: 50%; background: #4b5a76; animation: breathe 2.6s ease-in-out infinite;"></span>
+      <span style="font-size: 11.5px; color: #64748b;">Watching mailbox</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px 14px;">
+      <span style="width: 26px; height: 26px; border-radius: 50%; background: #e0e3e8; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 600; color: #4b5a76;">JS</span>
+      <div style="display: flex; flex-direction: column; gap: 1px;">
+        <span style="font-size: 12px; font-weight: 500; color: #33415c;">Jessica Smith</span>
+        <span style="font-size: 11px; color: #8a94a6;">Whittington Agency</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; flex-direction: column; min-width: 0;">
+
+    <div style="height: 56px; flex: none; border-bottom: 1px solid #e6e8ec; display: flex; align-items: center; gap: 16px; padding: 0 22px;">
+      <!-- At this volume search is the primary instrument, so it is shown in use. -->
+      <div style="flex-grow: 1; max-width: 460px; display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 12px; border-radius: 8px; background: #ffffff; border: 1.5px solid {{accent}};">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+        <span style="font-size: 13px; color: #141b2d;">ridgeline</span>
+        <div style="flex-grow: 1;"></div>
+        <span style="font-size: 11.5px; color: #8a94a6;">6 matches</span>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <span style="font-size: 12.5px; color: #64748b;">9 unread</span>
+      <span style="width: 1px; height: 18px; background: #e6e8ec;"></span>
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-2.9 1.2v.2a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.6 1.7 1.7 0 00-1.9.4l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00-1.2-2.9h-.2a2 2 0 010-4h.1a1.7 1.7 0 001.6-1.1 1.7 1.7 0 00-.4-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3h.1A1.7 1.7 0 0011 3.5v-.2a2 2 0 014 0v.1a1.7 1.7 0 001 1.6 1.7 1.7 0 001.9-.4l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9v.1a1.7 1.7 0 001.6 1H22a2 2 0 010 4h-.1a1.7 1.7 0 00-1.5 1z" /></svg>
+    </div>
+
+    <div style="padding: 18px 22px 0; display: flex; align-items: baseline; gap: 10px;">
+      <h1 style="margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.015em;">Inbox</h1>
+      <span style="font-size: 13px; color: #8a94a6;">212 requests · 47 arrived today</span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 22px; padding: 0 22px; border-bottom: 1px solid #e6e8ec; margin-top: 12px;">
+      <div style="display: flex; align-items: center; gap: 7px; height: 36px;">
+        <span style="font-size: 13px; font-weight: 400; color: #64748b;">Needs you</span>
+        <span style="font-size: 12px; font-weight: 600; color: {{accent}};">12</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 7px; height: 36px;">
+        <span style="font-size: 13px; font-weight: 400; color: #64748b;">Waiting on requester</span>
+        <span style="font-size: 12px; color: #8a94a6;">5</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 7px; height: 36px; box-shadow: inset 0 -2px 0 #141b2d;">
+        <span style="font-size: 13px; font-weight: 600; color: #141b2d;">Done</span>
+        <span style="font-size: 12px; color: #8a94a6;">190</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 7px; height: 36px;">
+        <span style="font-size: 13px; font-weight: 400; color: #64748b;">All</span>
+        <span style="font-size: 12px; color: #8a94a6;">212</span>
+      </div>
+      <div style="flex-grow: 1;"></div>
+      <div style="display: flex; align-items: center; gap: 6px; height: 36px;">
+        <span style="font-size: 12.5px; color: #64748b;">Newest first</span>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8a94a6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+      </div>
+    </div>
+
+    <div style="flex-grow: 1; position: relative; overflow: hidden; min-height: 0;">
+
+      <div class="day"><span>Today</span><span style="font-size: 12px; color: #8a94a6;">18</span></div>
+
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Aaron Beck</span><span class="c">COI request — Ridgeline Freight LLC</span><span class="m">Ridgeline Freight LLC</span><span class="m">COI-2026-0017</span><span class="m" style="text-align: right;">7:42 AM</span></div>
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Lena Ortiz</span><span class="c">Certificate for Halverson Transport</span><span class="m">Halverson Transport</span><span class="m">COI-2026-0016</span><span class="m" style="text-align: right;">7:05 AM</span></div>
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Tomas Nagy</span><span class="c">COI — Beltline Carriers Inc</span><span class="m">Beltline Carriers Inc</span><span class="m">COI-2026-0015</span><span class="m" style="text-align: right;">6:38 AM</span></div>
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Ines Moreau</span><span class="c">Insurance certificate — Northgate Logistics</span><span class="m">Northgate Logistics</span><span class="m">COI-2026-0014</span><span class="m" style="text-align: right;">6:12 AM</span></div>
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Victor Salas</span><span class="c">Please issue COI — Copper Ridge Trucking</span><span class="m">Copper Ridge Trucking</span><span class="m">COI-2026-0013</span><span class="m" style="text-align: right;">5:55 AM</span></div>
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Hana Yoshida</span><span class="c">COI needed for Ironwood Transit Co</span><span class="m">Ironwood Transit Co</span><span class="m">COI-2026-0012</span><span class="m" style="text-align: right;">5:30 AM</span></div>
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Peter Almeida</span><span class="c">Certificate of insurance — Cascade Freight</span><span class="m">Cascade Freight Systems</span><span class="m">COI-2026-0011</span><span class="m" style="text-align: right;">5:02 AM</span></div>
+
+      <div class="day"><span>Yesterday</span><span style="font-size: 12px; color: #8a94a6;">29</span></div>
+
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Diana Kovach</span><span class="c">COI — Meridian Haulage Ltd</span><span class="m">Meridian Haulage Ltd</span><span class="m">COI-2026-0010</span><span class="m" style="text-align: right;">4:48 PM</span></div>
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Ravi Menon</span><span class="c">Insurance cert request — Ridgeline Freight</span><span class="m">Ridgeline Freight LLC</span><span class="m">COI-2026-0009</span><span class="m" style="text-align: right;">3:31 PM</span></div>
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Sofia Berg</span><span class="c">Certificate — Smart Way Solutions LLC</span><span class="m">Smart Way Solutions LLC</span><span class="m">COI-2026-0008</span><span class="m" style="text-align: right;">2:19 PM</span></div>
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Marcus Reed</span><span class="c">COI for new lane — Northgate Logistics</span><span class="m">Northgate Logistics</span><span class="m">COI-2026-0007</span><span class="m" style="text-align: right;">1:44 PM</span></div>
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Claire Dubois</span><span class="c">Please send COI — Beltline Carriers Inc</span><span class="m">Beltline Carriers Inc</span><span class="m">COI-2026-0006</span><span class="m" style="text-align: right;">11:58 AM</span></div>
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Anton Petrov</span><span class="c">Certificate of liability — Ironwood Transit</span><span class="m">Ironwood Transit Co</span><span class="m">COI-2026-0005</span><span class="m" style="text-align: right;">10:22 AM</span></div>
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Nora Sørensen</span><span class="c">COI — Halverson Transport renewal</span><span class="m">Halverson Transport</span><span class="m">COI-2026-0004</span><span class="m" style="text-align: right;">9:15 AM</span></div>
+      <div class="r"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#a8b0be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6" /></svg><span class="c">Isaac Whitmore</span><span class="c">Need certificate — Cascade Freight Systems</span><span class="m">Cascade Freight Systems</span><span class="m">COI-2026-0003</span><span class="m" style="text-align: right;">8:40 AM</span></div>
+
+      <!-- Paging is explicit rather than infinite: a reviewer looking for one
+           certificate should be able to tell how much they have not seen. -->
+      <div style="display: flex; align-items: center; justify-content: center; gap: 12px; height: 52px; border-bottom: 1px solid #f2f4f7;">
+        <button style="height: 30px; padding: 0 16px; border: 1px solid #d7dbe2; border-radius: 7px; background: #ffffff; color: #33415c; font-size: 12.5px; font-weight: 600; font-family: inherit; cursor: pointer;">Load 50 more</button>
+        <span style="font-size: 12px; color: #8a94a6;">50 of 190 shown</span>
+      </div>
+
+      <div style="position: absolute; right: 3px; top: 30px; width: 4px; height: 176px; border-radius: 2px; background: #d7dbe2;"></div>
+    </div>
+
+    <div style="height: 38px; flex: none; border-top: 1px solid #e6e8ec; display: flex; align-items: center; gap: 14px; padding: 0 22px; background: #fafbfc;">
+      <span style="font-size: 12px; color: #64748b;">190 delivered</span>
+      <span style="width: 1px; height: 14px; background: #e6e8ec;"></span>
+      <span style="font-size: 12px; color: #8a94a6;">Oldest 14 Jan 2026</span>
+      <div style="flex-grow: 1;"></div>
+      <span style="font-size: 12px; color: #8a94a6;">
+        <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #64748b;">J</span> /
+        <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #64748b;">K</span> to move ·
+        <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #64748b;">Enter</span> to open
+      </span>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#f26522","options":["#f26522","#2d6be4","#141b2d","#4b5a76"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return { accent: this.props.accent ?? '#f26522' }; }
+}
+</script>
+</body>
+</html>

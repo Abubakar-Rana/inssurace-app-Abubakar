@@ -1,0 +1,84 @@
+===============================================================================
+ CERTFLOW - WHAT THE BUSINESS MUST PROVIDE
+ Owner [YOUR NAME]  |  Date [DD MMM YYYY]
+===============================================================================
+
+ Most of what stands between a working demonstration and a working business
+ system is not software. It is licences, data access, permissions, and
+ agreement about who does what.
+
+ START THESE TODAY - THEY DEPEND ON OTHER PEOPLE
+
+  1. LICENCE FOR THE INDUSTRY FORMS
+     The certificate forms are copyrighted. The agency needs a licence
+     allowing software to produce them. Slow, outside our control, and it
+     cannot be worked around. Nothing goes live without it.
+
+  2. PERMISSION TO READ THE AGENCY MAILBOX
+     Needs a project set up under the agency's own Google account, with a
+     consent step. Google may run a security review of this. Also slow.
+
+  3. WHERE POLICY DATA COMES FROM        <-- BLOCKS EVERYTHING ELSE
+     The system prints policy details from a database that must be filled
+     from the agency's real system. Three options:
+
+       A. A live connection to their main system. Always current, but
+          depends on that supplier offering access - which usually costs
+          extra and sometimes is not available at all.
+       B. A regular file export, loaded on a schedule. Simpler and safer to
+          build. Must run often enough that a certificate can never be
+          issued against a policy that has since lapsed.
+       C. Kept up to date by hand inside our system. No connection needed,
+          but creates a second set of records that will drift out of step.
+          Not recommended.
+
+     Until the client picks one, no later stage can be estimated or dated.
+
+ NEEDED BEFORE GO-LIVE
+  4. A dedicated email address for requests, published to brokers - not the
+     general agency inbox.
+  5. Registration with the agency's staff sign-in, with multi-factor sign-in
+     switched on. Without it nobody can log in at all.
+  6. The list of staff and what each may do: view only, prepare and send, or
+     full access.
+  7. The data itself: client companies, their known alternative spellings,
+     policies, vehicle lists, the agency's own contact block, and any
+     standard wording that must appear on certificates.
+  8. Confirmation from the agency's insurer that this way of working is
+     acceptable to them.
+  9. A data protection agreement, and confirmation that deleting stored
+     emails after 30 days fits the agency's own record-keeping rules.
+ 10. Somewhere to run it: a private database, a server, backups that have
+     actually been tested, and safe storage for the system's keys.
+ 11. Confirmation the agency's email domain is set up properly, so
+     certificates do not land in brokers' spam folders.
+ 12. Named people who will check and send certificates, and their hours.
+
+ 13. APPROVAL FOR THE SYSTEM TO EMAIL REQUESTERS ON ITS OWN
+     When two of the agency's clients are named too alike, the system replies
+     to the requester asking which one, and for a USDOT or MC number. It is
+     the only message it sends without a person. No coverage, no document -
+     just a question. The agency needs to approve the wording, or say to
+     switch it off.
+
+ 14. SOMEONE TO SUPERVISE THE MAILBOX WATCHER
+     The system runs as two programs. If the one watching the mailbox stops,
+     the dashboard looks exactly like a quiet mailbox. Someone must be alerted.
+
+ WHAT THE SYSTEM CANNOT DO - SET EXPECTATIONS ON THESE
+   - It cannot read a request that names the company only inside an attached
+     PDF or scanned image. These still reach the screen for a person; they
+     are just not automatic.
+   - English only. Google email only - Microsoft mailboxes not yet supported.
+   - It cannot tell that a policy record is itself wrong or out of date. It
+     removes typing errors, not bad source data.
+   - It leaves vehicle ID numbers off unless the request asks for them.
+
+ THE FIVE THINGS MOST LIKELY TO DELAY GO-LIVE
+   1. The forms licence                    4. Gaps in the agency's own data
+   2. The policy data decision             5. Nobody assigned to check and
+   3. Google's review of mailbox access       send certificates
+
+===============================================================================
+ Full checklist: docs/04-Integration-Requirements.txt
+===============================================================================

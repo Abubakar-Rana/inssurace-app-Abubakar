@@ -1,0 +1,831 @@
+===============================================================================
+ CERTFLOW - CORE MODULES OF THE SOFTWARE
+===============================================================================
+
+ Version           [0.1 DRAFT]
+ Date              [DD MONTH YYYY]
+ Prepared by       [YOUR NAME], Nestnic Solutions
+
+ Status key:  LIVE      built, tested, running
+              PARTIAL   built but not fully wired or not production-ready
+              PLANNED   designed, not yet built
+
+
+-------------------------------------------------------------------------------
+ CONTENTS
+-------------------------------------------------------------------------------
+
+  A.  INTAKE                    M1  Mail Ingestion
+                                M2  Request Classification
+
+  B.  INTERPRETATION            M3  Insured Extraction
+                                M4  Entity Resolution
+                                M5  Certificate Holder Resolution
+
+  C.  DOCUMENT PRODUCTION       M6  Certificate Assembly
+                                M7  Form Rendering
+                                M8  Certificate Lifecycle
+
+  D.  OUTPUT                    M9  Delivery
+
+  E.  HUMAN INTERFACE           M10 Review Dashboard
+                                M11 Manual Resolution
+
+  F.  PLATFORM                  M12 Identity and Access Control
+                                M13 Audit and Evidence
+                                M14 Data Retention and Encryption
+                                M15 Verification Harness
+                                M16 Mailbox Watcher and Live Feed
+
+  G.  JUDGEMENT DEFERRAL        M17 Clarification Exchange
+                                M18 VIN Disclosure Control
+
+
+===============================================================================
+ A.  INTAKE
+===============================================================================
+
+-------------------------------------------------------------------------------
+ M1  MAIL INGESTION                                                      LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Bring inbound certificate requests into the system from the agency's
+   mailbox.
+
+ INPUT     A designated mailbox, read over IMAP.
+ OUTPUT    Request records, one per genuine certificate request.
+
+ BEHAVIOUR
+   Connects to the mailbox and reads recent messages. Each message is passed
+   to classification (M2) BEFORE anything is written to the database.
+
+ DESIGN DECISIONS AND WHY
+   - The mailbox is opened READ-ONLY. The server itself refuses any attempt to
+     change a flag, so the system cannot mark, move or delete the agency's
+     mail under any circumstance, including a bug.
+
+   - De-duplication is a unique database constraint on the message ID, NOT the
+     "seen" flag. This is what makes repeated polling safe: two pollers running
+     at once, or a crash mid-run, cannot produce duplicate requests.
+
+   - Concurrent callers are coalesced. Several open dashboards share a single
+     mailbox read, with a minimum interval enforced per agency, so the number
+     of open browser tabs does not multiply the load on Gmail.
+
+ CURRENT LIMITATION
+   Authenticates with a Google App Password. This is suitable for a mailbox
+   the agency owns and operates, but it grants full account access and cannot
+   be scoped or revoked per integration. Production requires OAuth 2.0 scoped
+   to read-only mail. The replacement is confined to a single module.
+
+
+-------------------------------------------------------------------------------
+ M2  REQUEST CLASSIFICATION                                              LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Decide whether an inbound message is a certificate request at all.
+
+ INPUT     Sender, subject and body of one message.
+ OUTPUT    A verdict, a confidence score, and a human-readable reason.
+
+ WHY THIS MODULE EXISTS
+   A shared agency mailbox is mostly not certificate requests. It carries
+   renewal notices, loss runs, newsletters, calendar invites and spam.
+   Ingesting all of it would put the entire mailbox on the reviewer's screen
+   and, worse, store the contents of unrelated correspondence in a system
+   built to hold certificate requests.
+
+ DESIGN DECISIONS AND WHY
+   - Filtering happens BEFORE the database write. Mail that is not a request
+     is never stored at all. The cheapest possible answer to "what did you do
+     with my email?" is "we never kept it."
+
+   - Precision is favoured over recall, but every miss is visible. Each
+     skipped subject and the reason for skipping it is returned to the
+     dashboard and printed by the command-line tool. A false negative loses a
+     customer's request, so it must never be silent.
+
+   - Insurance vocabulary alone is not sufficient. A renewal notice says
+     "policy" and "coverage" throughout without asking for anything. The
+     threshold requires the document to be named: certificate of insurance,
+     COI, or ACORD.
+
+   - Senders that cannot receive a reply (no-reply addresses, mailer daemons)
+     are refused on principle rather than as spam filtering. The system answers
+     by replying in-thread; an address that discards replies cannot be the
+     origin of a request it can fulfil.
+
+ OVERRIDE
+   A configuration flag disables filtering entirely for diagnosis, so an
+   operator investigating a missing request can see whether it reached the
+   mailbox at all.
+
+ ASSURANCE   16 automated checks, 9 of which assert refusal.
+
+
+===============================================================================
+ B.  INTERPRETATION
+===============================================================================
+
+-------------------------------------------------------------------------------
+ M3  INSURED EXTRACTION                                                  LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Read candidate insured company names out of the request text.
+
+ INPUT     Subject and body.
+ OUTPUT    Zero or more candidate names, ranked by how explicitly the email
+           stated them, each with the phrase it came from.
+
+ THE TRAP THIS MODULE EXISTS TO AVOID
+   The company that SENDS a certificate request is usually not the company the
+   certificate is FOR. A freight broker emails asking for a certificate on
+   their carrier. The broker is the certificate holder; the carrier is the
+   insured. The broker's name appears in the from-address, the signature and
+   the footer, and it is the wrong answer every time.
+
+ DESIGN DECISIONS AND WHY
+   - Names are only accepted from positions that state who the certificate is
+     FOR: after "COI for", behind an "Insured:" label, and similar. The
+     sender's identity is never used as a source.
+
+   - The body is truncated at the signature block before reading. The
+     signature is the single richest source of wrong answers.
+
+   - Extracting nothing is a VALID OUTCOME, not a failure. It means the email
+     never said. That routes to a human, which is correct.
+
+ ASSURANCE   17 automated checks. Runs without a database or network.
+
+
+-------------------------------------------------------------------------------
+ M4  ENTITY RESOLUTION                                                   LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Turn a candidate name into a specific client record, or decline to.
+
+ INPUT     A candidate name.
+ OUTPUT    A matched client, or an explicit abstention with the candidates
+           that were considered.
+
+ BEHAVIOUR
+   Ranks the client list by trigram similarity across legal names and known
+   aliases, after suffix-aware normalisation ("Inc", "L.L.C.", "Company").
+   A single indexed query; no machine learning, no external service.
+
+ DESIGN DECISIONS AND WHY
+   - A match requires BOTH a strong similarity score AND a clear margin over
+     the runner-up. Two related entities never resolve on a narrow lead.
+     "Smith Trucking LLC" and "Smith Trucking of Ohio LLC" are different
+     companies with different policies.
+
+   - Abstention routes to a human. It is not an error state.
+
+   - Raising either threshold makes the system ask a human more often, which
+     is the safe direction. This is a deliberate tuning property.
+
+ A DECISION THAT WAS TRIED AND REVERSED
+   An early version added a bonus when one name contained the other. Because
+   "Smart Way Solutions" is contained in "Smart Way Solutions of Ohio", the
+   bonus scored a DIFFERENT company at a perfect 1.00. The extra words in a
+   longer name are exactly what distinguish two related entities. The bonus
+   was removed and a permanent note added to prevent its return.
+
+ ASSURANCE   24 automated checks, roughly half asserting refusal.
+
+
+-------------------------------------------------------------------------------
+ M5  CERTIFICATE HOLDER RESOLUTION                                       LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Determine who the certificate should be addressed to.
+
+ INPUT     The request email.
+ OUTPUT    A holder name and address block, stored and reusable.
+
+ WHY THIS IS THE ONLY FIELD READ FROM THE EMAIL
+   Every other value on the certificate describes the insured, and the
+   insured's own records are the only trustworthy source. The holder is
+   different: the holder is whoever asked, and the agency has no record of
+   them until they write in. Reading it from a stored list means printing
+   whichever holder happened to be on file, which is how a certificate ends up
+   addressed to a company that never requested it.
+
+ DESIGN DECISIONS AND WHY
+   - It reads only BELOW the sign-off. Insured extraction (M3) reads only
+     ABOVE it. The two are deliberate mirror images:
+
+         above the sign-off  ->  who the certificate is FOR
+         below the sign-off  ->  who is ASKING for it
+
+     This split is the safety property. A name in a signature can become the
+     holder, which is an addressee, but never the insured, whose coverage the
+     document actually asserts. The worst a bad read can do is address the
+     certificate imperfectly, in a field the reviewer is looking straight at.
+
+   - The LAST sign-off wins, not the first. "Thanks for the quick turnaround"
+     appears mid-body constantly; the block wanted is at the bottom.
+
+   - Phone numbers, bare email addresses and URLs are discarded. The ACORD
+     holder box is a postal address block with four lines; contact details
+     would consume them.
+
+   - It is never empty. With no usable signature it falls back to the sender's
+     display name and address - still the requester.
+
+   - Holders are de-duplicated on the full block, so a repeat broker reuses one
+     record, while two different people at the same brokerage stay distinct.
+
+ ASSURANCE   12 automated checks, including an explicit test that neither
+             reader can see the other's region of the email.
+
+
+===============================================================================
+ C.  DOCUMENT PRODUCTION
+===============================================================================
+
+-------------------------------------------------------------------------------
+ M6  CERTIFICATE ASSEMBLY                                                LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Turn database records into a complete certificate object.
+
+ INPUT     Producer, insured, holder, policies, vehicles.
+ OUTPUT    A single certificate object containing every printed value.
+
+ BEHAVIOUR
+   Orders coverage rows to match the ACORD 25 grid, populates the free-form
+   coverage rows (Motor Truck Cargo, Physical Damage and similar), composes
+   the description of operations, and decides how much of the vehicle
+   schedule fits on page one.
+
+ DESIGN DECISIONS AND WHY
+   - The module is PURE: given the same records it always produces the same
+     object. It performs no database access and no I/O. This is what makes the
+     output testable field by field without a running system.
+
+   - Page-one capacity is computed from WRAPPED lines, not logical ones, using
+     real font metrics. A vehicle entry is never split across the page break.
+
+   - Endorsement and operations wording comes from the database and is printed
+     verbatim. The system does not compose legal language.
+
+ ASSURANCE   17 automated checks comparing generated output field-by-field
+             against a certificate the agency produced manually.
+
+
+-------------------------------------------------------------------------------
+ M7  FORM RENDERING                                                      LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Place the certificate object onto the ACORD forms, both on screen and as a
+   PDF.
+
+ OUTPUT    An editable on-screen form, and a print-ready PDF of one or two
+           pages.
+
+ THE CENTRAL ARCHITECTURAL IDEA
+   The ACORD form is never re-drawn by hand. A SINGLE COORDINATE MAP defines
+   where every field sits, and both renderers read from it:
+
+         COORDINATE MAP  (one definition, in points)
+              |
+              +---->  On-screen form  (inputs positioned over the artwork)
+              |
+              +---->  PDF generator    (text stamped onto the blank form)
+
+   Because both consume the same map, what a reviewer approves on screen and
+   what the holder receives as a PDF cannot drift apart. Changing a position
+   updates both automatically; no component contains a hardcoded coordinate.
+
+ DESIGN DECISIONS AND WHY
+   - Coordinates were MEASURED from a real filled certificate, not estimated.
+
+   - Field heights are enforced. A block that would overflow its box is
+     clamped rather than printed over the form's rules.
+
+   - PDF output is DETERMINISTIC. Document metadata is pinned, so re-rendering
+     the same certificate always produces byte-identical output. Without this,
+     the stored document hash would be meaningless after any reprint.
+
+ SECOND PAGE
+   When the vehicle schedule exceeds page one, an ACORD 101 Additional Remarks
+   Schedule is produced automatically and carries the remainder.
+
+
+-------------------------------------------------------------------------------
+ M8  CERTIFICATE LIFECYCLE                                               LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Govern the states a certificate may occupy and the transitions between
+   them.
+
+ STATES    draft  ->  issued  ->  (superseded by a later revision)
+
+ RULES ENFORCED IN CODE, NOT BY CONVENTION
+
+   - DRAFTING IS AUTOMATIC; ISSUING IS NOT. The certificate is assembled the
+     moment a request resolves to an insured. The reviewer's job is to CHECK a
+     document, not to ask for one. Nothing about this weakens control: a draft
+     is still only a draft.
+
+   - AN ISSUED CERTIFICATE IS NEVER MUTATED. Editing is rejected once the
+     status leaves draft.
+
+   - A CORRECTION IS A NEW REVISION OF THE SAME NUMBER. A holder who received
+     COI-2026-0001 must see that number again. A fresh number reads as a
+     second, unrelated certificate and leaves the first apparently still in
+     force.
+
+   - REPRINTS RE-RENDER THE STORED SNAPSHOT, never live policy data. Policies
+     renew; a reprint has to show what was certified on the day.
+
+   - A DRAFTING FAILURE NEVER FAILS THE INTAKE RUN. The request reaches the
+     dashboard either way. Losing a whole run of incoming mail because one
+     client's policy data is incomplete would be the worse trade.
+
+   - THE CLIENT NEVER SUPPLIES CERTIFICATE IDENTIFIERS. Submitted certificate
+     numbers and form editions are overwritten with the stored ones.
+
+ ASSURANCE   17 automated checks against a live database with security
+             policies active.
+
+
+===============================================================================
+ D.  OUTPUT
+===============================================================================
+
+-------------------------------------------------------------------------------
+ M9  DELIVERY                                                            LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Send an issued certificate to the requester.
+
+ OUTPUT    A threaded email reply with the PDF attached, and a delivery
+           record.
+
+ BEHAVIOUR
+   Replies inside the ORIGINAL email thread. A certificate that arrives as a
+   new, unrelated message forces the requester to match it up by hand, and in
+   a shared compliance inbox it is often missed entirely.
+
+ RULES ENFORCED IN CODE
+
+   - ONLY ISSUED CERTIFICATES ARE SENT. A draft is work in progress; emailing
+     one puts an unreviewed document in a holder's hands, and they will rely
+     on it.
+
+   - NOTHING IS SENT AUTOMATICALLY. Approval and sending are separate human
+     actions, deliberately. An agency must be able to issue a certificate and
+     decide later whether, when and to whom it goes.
+
+   - THE BYTES ARE VERIFIED BEFORE SENDING. The PDF is re-rendered from the
+     stored snapshot and its hash compared against the hash recorded at
+     approval. A mismatch aborts the send.
+
+   - THE SEND HAPPENS BEFORE THE DATABASE RECORDS IT. If mail transmission
+     fails, nothing is written and the reviewer retries. The opposite order
+     would let the system record a delivery that never happened - worse than a
+     retry, because the agency would believe the holder had the document.
+
+   - THE REVIEWER CONFIRMS THE RECIPIENT. The address is pre-filled from the
+     request and remains editable, because a compliance inbox is often not the
+     person who wrote in.
+
+ RECIPIENT CONTROLS
+   A configurable allowlist governs who may be emailed. Reserved test domains
+   are refused unconditionally and cannot be enabled, which is what prevents a
+   click on demonstration data from emailing a real company.
+
+ ASSURANCE   16 automated checks on the guardrails alone, plus a live
+             end-to-end test against a real mailbox.
+
+
+===============================================================================
+ E.  HUMAN INTERFACE
+===============================================================================
+
+-------------------------------------------------------------------------------
+ M10  REVIEW DASHBOARD                                                   LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Show a reviewer what needs their attention, and let them act on it.
+
+ SCREENS
+   - Request inbox: every inbound request, its matched insured, and the state
+     of its certificate.
+   - Certificate review: both ACORD pages, editable, with approve and send.
+   - Certificates: everything ever issued, with delivery history.
+
+ BEHAVIOUR
+   The browser does not poll anything. Changes are PUSHED to it by the server
+   as they happen, and the page never reloads. There is no "check for new
+   email" button because there is nothing for it to do.
+
+ WHAT THE HEADER SHOWS
+   - HOW MANY REQUESTS NOBODY HAS OPENED YET. Recorded against the request
+     rather than the browser, so it reads the same on every machine and
+     survives signing out.
+   - WHETHER THE LIVE FEED IS ACTUALLY CONNECTED. Without this, a broken
+     connection looks exactly like a quiet mailbox.
+
+ DESIGN DECISIONS AND WHY
+   - A CHECK THAT FOUND NOTHING SAYS NOTHING. Only an arrival draws a banner.
+     A dashboard that redraws every few seconds teaches the reviewer to stop
+     reading it, and then it is worth nothing on the day it matters.
+
+   - LOSING THE CONNECTION IS VISIBLE. It reconnects on its own, and says so
+     meanwhile. Silently ceasing to update is the worst available outcome: the
+     screen looks calm while requests pile up unseen.
+
+   - MAIL THE FILTER PASSED OVER IS PULLED, NOT PUSHED. Announcing every
+     newsletter the agency receives would drown the notice that matters, so
+     skipped messages are kept and shown on request instead.
+
+ MEASURED PERFORMANCE
+   7-8 seconds from a message landing in the mailbox to appearing on screen,
+   with no user interaction. The sender's own provider typically adds another
+   5-7 seconds before the message is visible to us at all.
+
+ ASSURANCE   45 automated checks executed in a real browser.
+
+
+-------------------------------------------------------------------------------
+ M11  MANUAL RESOLUTION                                                  LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Let a person settle a request the system declined to decide.
+
+ BEHAVIOUR
+   Presents the evidence rather than a blank field: what the extractor read
+   from the email, why it stopped, the email itself, and a searchable list of
+   insureds.
+
+ WHY IT IS BUILT THIS WAY
+   Abstention is only useful if a person can then decide. A reviewer who can
+   see "it read 'Smart Way' and found two companies that both start that way"
+   makes a better decision than one handed an empty search box.
+
+   Choosing the insured is recorded against the user's account. It is worth
+   auditing precisely because it overrides the machine: if a wrong certificate
+   is ever issued, this records who chose the company.
+
+   Once the insured is identified, the certificate is drafted immediately -
+   identifying the insured was the only missing judgement.
+
+
+===============================================================================
+ F.  PLATFORM
+===============================================================================
+
+-------------------------------------------------------------------------------
+ M12  IDENTITY AND ACCESS CONTROL                                     PARTIAL
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Establish who is acting, and confine them to their own agency's data.
+
+ BEHAVIOUR
+   Sign-in through the agency's own identity provider using OpenID Connect.
+   Signed, stateless session cookies. Role-based permissions (administrator,
+   reviewer, read-only).
+
+ DESIGN DECISIONS AND WHY
+   - NO PASSWORDS EXIST IN THE SYSTEM. There is deliberately no password
+     column in the database. Nothing to phish, leak or reset; the agency's
+     identity provider enforces multi-factor authentication.
+
+   - AUTHORITY IS RE-READ FROM THE DATABASE ON EVERY REQUEST. The cookie is a
+     claim of identity, not of permission. Suspending a user or changing a
+     role takes effect immediately, on their existing session.
+
+   - USERS ARE NEVER AUTO-CREATED AT SIGN-IN. A record must already exist, or
+     anyone with a Google account could land inside an agency's data.
+
+   - TENANT SEPARATION IS ENFORCED BY THE DATABASE, not by application
+     filtering. Row-level security policies compare every row against the
+     session's agency. A forgotten filter therefore returns nothing rather
+     than another agency's certificates.
+
+   - Rotating a single secret signs every user out - the "revoke all sessions"
+     lever.
+
+ VERIFIED   Unauthenticated requests refused; forged cookies refused;
+            cross-origin writes refused; a suspended account refused on its
+            existing session.
+
+ REMAINING  Identity provider registration is a client-side configuration step
+            and is not yet performed for production. Until it is, the system
+            uses a development sign-in path that refuses to operate in a
+            production environment - so a missing configuration locks everyone
+            out rather than letting anyone in.
+
+
+-------------------------------------------------------------------------------
+ M13  AUDIT AND EVIDENCE                                              PARTIAL
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Produce a record of what happened that can be relied upon afterwards.
+
+ BEHAVIOUR
+   Every state change writes an entry recording the actor, the action, the
+   subject, and the shape of what changed.
+
+ DESIGN DECISIONS AND WHY
+   - APPEND-ONLY BY DATABASE GRANT. Update and delete are revoked from the
+     application's database role. Immutability is enforced by the database,
+     not promised by the application.
+
+   - ENTRIES ARE HASH-CHAINED. Each entry incorporates the hash of its
+     predecessor, so altering any entry invalidates every entry after it.
+     Tampering becomes DETECTABLE, not merely forbidden.
+
+   - THE LOG STORES REFERENCES AND HASHES, NEVER CONTENT. Email bodies are
+     deliberately excluded. Embedding them would make the retention promise
+     impossible to keep and would turn the audit log into the very personal
+     data store that data minimisation exists to prevent.
+
+   - THE LOG DECLARES NO FOREIGN KEYS. Every other table cascades from the
+     agency record. If the audit log did too, honouring a deletion request
+     would erase the record of what was done.
+
+   - Audit entries are written in the SAME TRANSACTION as the change they
+     record. An action and its record commit together or not at all.
+
+ REMAINING  There is no user interface over the log. The data is complete and
+            queryable; it has no screen.
+
+
+-------------------------------------------------------------------------------
+ M14  DATA RETENTION AND ENCRYPTION                                   PARTIAL
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Hold as little as possible, for as short as possible, and protect what must
+   be held.
+
+ RETENTION
+   Every stored email body carries a purge date, set at ingestion, currently
+   30 days. Messages that are not certificate requests are never stored at
+   all. A manual purge command exists today.
+
+ ENCRYPTION DESIGN
+   Envelope encryption with a per-agency data key, which is itself encrypted
+   by a master key held outside the database. The stored key material is
+   useless without the master key. Deleting an agency's key renders every
+   ciphertext they own permanently unreadable - satisfying a deletion request
+   without touching the immutable audit log.
+
+   Secret values that must be searched by exact match are protected with a
+   deterministic blind index, so lookup is possible without storing the value
+   in readable form.
+
+ REMAINING
+   - The encryption module is implemented and tested but is NOT yet applied to
+     the columns it is designed to protect.
+   - The purge job is manual. A scheduled job reading the stored purge dates
+     is required.
+
+
+-------------------------------------------------------------------------------
+ M15  VERIFICATION HARNESS                                               LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Demonstrate, on demand, that the system does what is claimed.
+
+ This is listed as a module because it is a delivered asset, not a
+ development convenience. The client can run it.
+
+   Suite                    Checks   What it proves
+   -------------------------------------------------------------------------
+   Browser                     45    The complete flow in real Chrome:
+                                     sign in, review, edit, approve
+   Clarification               30    Reading identifiers and replies, and
+                                     the lookup that settles an ambiguity
+   Entity resolution           24    Correct matches AND correct refusals
+   VIN disclosure              23    Withheld unless asked, including the
+                                     inversions ("no VINs needed")
+   Interpretation              19    Email to insured, over a known inbox
+   Assembly                    17    Generated fields match a real
+                                     certificate produced by hand
+   Lifecycle (API)             17    Draft, revision, audit chain, and
+                                     access control against a live database
+   Extraction                  17    Email parsing. No database or network
+   Delivery guardrails         16    Every case that must be refused
+   Mailbox filter              16    What reaches the dashboard
+   Holder resolution           12    Holder read from the signature
+   -------------------------------------------------------------------------
+   TOTAL                      236
+
+   Plus THREE opt-in live tests that send genuine email: a request appearing on
+   the dashboard unattended, the full clarification exchange, and certificate
+   delivery. They require SEND_REAL_MAIL=1 because each run leaves a permanent
+   message in a real mailbox.
+
+ NOTE ON WHAT THESE TESTS ASSERT
+   A substantial proportion assert REFUSAL - that the system declines to act
+   when it should not act. For a system that produces documents asserting
+   insurance coverage, the cases where it must not proceed are as important as
+   the cases where it must.
+
+
+-------------------------------------------------------------------------------
+ M16  MAILBOX WATCHER AND LIVE FEED                                      LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Put a new request on the reviewer's screen within seconds, without anyone
+   asking for it and without the page reloading.
+
+ BEHAVIOUR
+   A watcher process holds ONE connection to the mailbox open. Two things run
+   on that connection:
+
+     THE FAST PATH   the mail server itself announces new mail. Usually
+                     sub-second.
+     THE GUARANTEE   the same open connection is asked every couple of seconds
+                     whether anything newer exists.
+
+   When something arrives it is ingested and the browser is told. The browser
+   then re-fetches through the normal, authenticated route.
+
+ DESIGN DECISIONS AND WHY
+
+   - RECONNECTING EVERY FEW SECONDS WOULD BE ABSURD. Doing so would mean around
+     seventeen thousand mailbox logins a day to be told, nearly every time, that
+     nothing changed. Holding one connection open makes a two-second check
+     essentially free, which is what makes it affordable at all.
+
+   - THE REQUEST IS ANNOUNCED BEFORE ITS CERTIFICATE IS BUILT. Assembling the
+     document takes several more database operations. Making the reviewer wait
+     for that before the request even appears is the difference between a
+     dashboard that feels live and one that feels slow. The certificate follows
+     a moment later and announces itself again.
+
+   - THE MESSAGE TO THE BROWSER CARRIES NO DATA - only "something changed, go
+     and look". This connection therefore cannot become a way to read records
+     the normal route would have refused.
+
+   - A LOST MESSAGE IS SURVIVABLE. Nothing about correctness depends on it: the
+     dashboard still refreshes on its own slow timer and whenever the reviewer
+     returns to the tab. The failure mode is a slower update, never a wrong
+     screen.
+
+   - THE WATCHER IS ITS OWN PROCESS. A long-lived mail connection is a
+     background-worker concern; running it inside the web server means it
+     restarts on every deployment and duplicates itself across instances.
+     Because they are separate processes, notifications travel through the
+     database, which is the one thing both already share.
+
+ MEASURED
+   7-8 seconds from a message becoming visible in the mailbox to appearing on
+   the dashboard. Roughly 4 seconds of that is the ingest itself. Gmail's own
+   delivery time - typically another 5-7 seconds from when the sender presses
+   send - is separate and outside this system.
+
+ OPERATIONAL NOTE
+   Run the watcher alongside the web server. The web server also starts one
+   when a dashboard connects, so a single process works in development.
+
+
+-------------------------------------------------------------------------------
+ M17  CLARIFICATION EXCHANGE                                             LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Settle a request whose named company matches two insureds equally, by asking
+   the person who sent it.
+
+ THE PROBLEM IT SOLVES
+   An agency can easily carry "Smart Way Solutions Inc" and "Smart Way
+   Solutions LLC" - the same trading name under different entities, with
+   different policies and different limits. A request naming "Smartway
+   Solutions" fits both exactly as well. Entity resolution correctly refuses.
+
+   Until now that refusal went to a reviewer, who has to guess just as much as
+   the machine did: THE AGENCY'S OWN RECORDS DO NOT SAY WHICH OF ITS CLIENTS A
+   STRANGER MEANT. The requester does know. They are onboarding one specific
+   carrier and have its paperwork in front of them.
+
+ BEHAVIOUR
+   Replies in the original thread asking which company is meant, and offers the
+   reliable way to say so: a USDOT or MC number. The request waits at "asked
+   the requester". When the reply arrives it is recognised as belonging to that
+   request, read, and used to resolve it - after which the certificate is
+   drafted automatically, exactly as it would have been.
+
+ WHY FEDERAL IDENTIFIERS
+   Company names are not unique and never have been. A USDOT number and an MC
+   number are issued by the federal government to one motor carrier each.
+   Matching then stops being a similarity judgement and becomes a lookup that
+   either finds exactly one company or finds none.
+
+   THERE IS NO FUZZY MATCHING ON AN IDENTIFIER, EVER. Digits transposed in a
+   DOT number name a completely unrelated carrier, so it matches exactly or not
+   at all.
+
+ THIS IS THE ONLY MAIL THE SYSTEM SENDS WITHOUT A HUMAN
+   Worth stating plainly, because everything else in this system requires a
+   person to press something. The question carries no coverage, no limits, no
+   policy numbers and no document - nothing anybody could rely on. It can be
+   switched off, in which case those requests go to a reviewer as before.
+
+ GUARDRAILS
+   - It asks ONCE. A second unanswered question in one thread reads as a
+     malfunction.
+   - It names only the companies the requester's own words already implied,
+     never the wider client list, and never their addresses or client numbers.
+   - It obeys the same recipient rules as certificates, so demonstration data
+     cannot generate mail.
+   - Our own outgoing mail is stamped and skipped on the way back in. The
+     mailbox we read is the mailbox we send from; without this the system would
+     answer itself.
+   - An unusable reply does NOT trigger a second question. It goes to a
+     reviewer, who can read what was actually written.
+   - The question we sent is stripped out before the reply is read - it lists
+     every candidate and contains example numbers, so reading it back would
+     make every reply look ambiguous.
+
+ ASSURANCE   30 automated checks, plus an opt-in live test of the whole
+             exchange against a real mailbox.
+
+
+-------------------------------------------------------------------------------
+ M18  VIN DISCLOSURE CONTROL                                             LIVE
+-------------------------------------------------------------------------------
+
+ PURPOSE
+   Decide whether the vehicle schedule carries vehicle identification numbers.
+
+ BEHAVIOUR
+   Off unless the request asks for them.
+
+ WHY OFF BY DEFAULT
+   A VIN identifies a specific vehicle, and a full schedule with VINs is a
+   complete inventory of the insured's rolling stock. Most requests need limits
+   and dates, not serial numbers. Printing them anyway discloses more of the
+   insured's business than was asked for, to a third party the insured did not
+   choose.
+
+   The absence of a request is therefore treated as "do not include", not as
+   "no preference".
+
+ DESIGN DECISIONS AND WHY
+   - THE INVERSIONS MUST NOT FIRE. "No VINs needed" contains the very word
+     being looked for. Declines are checked before requests, and this is
+     tested explicitly.
+   - Withholding them shortens each line, so a fleet that would have needed a
+     second page may now fit on one. That follows automatically from how the
+     page split is measured; nothing downstream needs to know.
+   - A reviewer can still add them by hand. This decides what the DRAFT
+     contains, not what is permitted.
+
+ ASSURANCE   23 automated checks, including the inversions and a comparison of
+             the same fleet assembled both ways.
+
+
+===============================================================================
+ MODULE STATUS SUMMARY
+===============================================================================
+
+   M1   Mail Ingestion                    LIVE      (App Password, not OAuth)
+   M2   Request Classification            LIVE
+   M3   Insured Extraction                LIVE
+   M4   Entity Resolution                 LIVE
+   M5   Certificate Holder Resolution     LIVE
+   M6   Certificate Assembly              LIVE
+   M7   Form Rendering                    LIVE
+   M8   Certificate Lifecycle             LIVE
+   M9   Delivery                          LIVE
+   M10  Review Dashboard                  LIVE
+   M11  Manual Resolution                 LIVE
+   M12  Identity and Access Control       PARTIAL   (IdP not yet registered)
+   M13  Audit and Evidence                PARTIAL   (no viewer)
+   M14  Retention and Encryption          PARTIAL   (not wired; manual purge)
+   M15  Verification Harness              LIVE
+   M16  Mailbox Watcher + Live Feed       LIVE
+   M17  Clarification Exchange            LIVE
+   M18  VIN Disclosure Control            LIVE
+
+   NOT PRESENT
+   Policy data integration with an agency management system. All policy,
+   vehicle and client data currently resides in CertFlow's own database.
+   See the Scope of Work, Section 7.
+
+
+===============================================================================
+ END OF DOCUMENT
+===============================================================================

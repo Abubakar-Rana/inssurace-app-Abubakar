@@ -1,0 +1,575 @@
+===============================================================================
+ CERTFLOW - SYSTEM ARCHITECTURE
+===============================================================================
+
+ Version           [0.1 DRAFT]
+ Date              [DD MONTH YYYY]
+ Prepared by       [YOUR NAME], Nestnic Solutions
+ Audience          Technical. Engineering, security review, due diligence.
+
+
+-------------------------------------------------------------------------------
+ 1. ARCHITECTURAL PRINCIPLES
+-------------------------------------------------------------------------------
+
+Six principles govern the design. Every significant decision in the system
+follows from one of them.
+
+ P1  THE EMAIL DECIDES WHAT WAS ASKED FOR; THE DATABASE DECIDES WHAT IS TRUE.
+     Interpretation of inbound mail may only select a client identifier. It has
+     no mechanism to supply a policy number, limit, date or coverage, because
+     nothing downstream will accept one from it. A misinterpretation therefore
+     shows a human the wrong company; it cannot state coverage that does not
+     exist.
+
+ P2  REFUSAL IS A FIRST-CLASS OUTCOME.
+     Every interpretive component has a defined way to decline. Near-ties
+     abstain, unrecognised mail is skipped, unverifiable recipients are
+     refused. Roughly half the automated test suite asserts refusal.
+
+ P3  ONE DEFINITION, TWO RENDERERS.
+     The ACORD form geometry exists once. The on-screen editor and the PDF
+     generator both consume it, so what a reviewer approves and what a holder
+     receives cannot diverge.
+
+ P4  ENFORCEMENT BELONGS IN THE DATABASE.
+     Tenant separation is a row-level security policy, not an application
+     filter. Audit immutability is a revoked grant, not a code convention.
+     De-duplication is a unique index, not a flag. A forgotten check in
+     application code therefore fails closed.
+
+ P5  THE HUMAN ACT IS PRESERVED.
+     Drafting is automated because it is transcription. Issuing and sending
+     are not, because they are judgement and they are irreversible.
+
+     ONE EXCEPTION, STATED PLAINLY. When two of the agency's own clients are
+     named too alike to tell apart, the system emails the REQUESTER to ask
+     which they meant. That message is sent without a human. It carries no
+     coverage, no limits, no policy numbers and no document - only a question -
+     and it exists because the agency's records genuinely cannot answer it. It
+     can be switched off.
+
+ P6  DISCLOSE ONLY WHAT WAS ASKED FOR.
+     A certificate is sent to a third party the insured did not choose. Vehicle
+     identification numbers - effectively an inventory of the insured's fleet -
+     are therefore omitted unless the request asks for them. The clarification
+     question names only the companies the requester's own words implied, never
+     the wider client list.
+
+
+-------------------------------------------------------------------------------
+ 2. TECHNOLOGY STACK
+-------------------------------------------------------------------------------
+
+ Layer               Technology                    Version
+ ---------------------------------------------------------------------------
+ Runtime             Node.js                       20+
+ Web framework       Next.js (App Router)          14.2.35
+ UI                  React                         18.3
+ Styling             Tailwind CSS                  3.4
+ Language            TypeScript (backend)          5.6
+                     JavaScript (UI components)
+ Database            PostgreSQL (Supabase)         15+
+ Data access         Drizzle ORM + postgres.js     0.36 / 3.4
+ PDF generation      pdf-lib                       1.17
+ Mail read           imapflow + mailparser         1.7 / 3.9
+ Mail send           nodemailer                    9.0
+ Validation          zod                           3.23
+ Browser testing     puppeteer-core                25.5
+
+ NOTES
+ - Next.js is pinned to an exact version rather than a range. 14.2.5 carried a
+   published vulnerability; the pin prevents an inadvertent downgrade.
+ - Business logic is deliberately kept free of framework dependencies. A port
+   to another platform would rewrite the transport layer, not the domain.
+
+
+-------------------------------------------------------------------------------
+ 3. COMPONENT VIEW
+-------------------------------------------------------------------------------
+
+  +---------------------------------------------------------------------+
+  |  BROWSER                                                            |
+  |                                                                     |
+  |   Request inbox        Certificate review       Certificates        |
+  |   - live feed (SSE)    - both ACORD pages       - issued history    |
+  |   - match dialog       - edit / approve / send  - deliveries        |
+  |                                                                     |
+  |   State: a fetch cache over the API. No local persistence.          |
+  +----------------------------------+----------------------------------+
+                                     | HTTPS
+  +----------------------------------v----------------------------------+
+  |  EDGE MIDDLEWARE                                                    |
+  |  Redirects unauthenticated page requests to sign-in.                |
+  |  UX ONLY - not the security boundary. It runs on the edge and       |
+  |  cannot reach the database.                                         |
+  +----------------------------------+----------------------------------+
+                                     |
+  +----------------------------------v----------------------------------+
+  |  API LAYER                                                          |
+  |  Every route passes through one wrapper that:                       |
+  |    - verifies the session and re-reads authority from the database  |
+  |    - checks request origin on all writes                            |
+  |    - pins the tenant for the transaction                            |
+  |  THE TENANT IS NEVER READ FROM THE CLIENT.                          |
+  +----------------------------------+----------------------------------+
+                                     |
+  +----------------------------------v----------------------------------+
+  |  DOMAIN SERVICES                                                    |
+  |                                                                     |
+  |   Ingestion       Interpretation      Certificate      Delivery     |
+  |   - classify      - extract           - assemble       - render     |
+  |   - store         - resolve           - lifecycle      - send       |
+  |   - draft         - holder            - audit          - record     |
+  |   - watch         - clarify           - VIN gating                  |
+  |                                                                     |
+  |   Assembly and interpretation are PURE. No I/O, fully testable.     |
+  +----------------------------------+----------------------------------+
+                                     |
+  +----------------------------------v----------------------------------+
+  |  POSTGRESQL                                                         |
+  |  15 tables. Row-level security forced on 14 of them.                |
+  |  Also the notification channel between processes (LISTEN/NOTIFY).   |
+  |  Append-only audit log with update and delete revoked.              |
+  +---------------------------------------------------------------------+
+
+  EXTERNAL
+  +---------------------------+   +----------------------------------+
+  |  Gmail / IMAP  (read-only)|   |  Identity provider (OIDC)        |
+  |  Gmail / SMTP  (send)     |   |  Google Workspace or Entra       |
+  +---------------------------+   +----------------------------------+
+
+
+-------------------------------------------------------------------------------
+ 4. REQUEST FLOW
+-------------------------------------------------------------------------------
+
+  An email arrives in the agency mailbox
+              |
+              v
+  [1] CLASSIFY .................... is this a certificate request?
+              |                     NO -> not stored. Reported, not kept.
+              | YES
+              v
+  [2] STORE ....................... one record. Duplicate message IDs are
+              |                     rejected by a unique index.
+              v
+  [3] READ THE HOLDER ............. from the signature block (below sign-off)
+              |
+              v
+  [4] EXTRACT THE INSURED ......... from the body (above sign-off)
+              |
+              v
+  [5] RESOLVE ..................... trigram match over names and aliases
+              |
+              +---- ABSTAINS -----> TWO INSUREDS FIT EQUALLY WELL?
+              |                     The system replies to the REQUESTER asking
+              |                     which, and offers a USDOT or MC number as
+              |                     the reliable answer. The request waits at
+              |                     "asked the requester" until they reply.
+              |                     When the reply arrives it is matched back to
+              |                     this request, read, and rejoins at [6].
+              |
+              |                     Anything else, or an unusable reply, is
+              |                     marked "needs a human". A reviewer is shown
+              |                     what was read and why it stopped, picks the
+              |                     insured, and the flow rejoins at [6].
+              | MATCHED
+              v
+  [6] ASSEMBLE .................... policies, vehicles, parties read from the
+              |                     database. Nothing from the email.
+              v
+  [7] DRAFT ....................... certificate number allocated, snapshot
+              |                     stored, audit entry written
+              v
+  [8] REVIEW ...................... HUMAN. Both ACORD pages on screen,
+              |                     every field editable
+              v
+  [9] APPROVE ..................... HUMAN. Snapshot frozen. PDF hash
+              |                     recorded. Nothing is sent.
+              v
+  [10] SEND ....................... HUMAN. Threaded reply, PDF attached,
+                                    delivery recorded after transmission
+                                    succeeds
+
+  Steps 1 to 7 are unattended. Steps 8 to 10 require a person.
+
+
+-------------------------------------------------------------------------------
+ 5. DATA ARCHITECTURE
+-------------------------------------------------------------------------------
+
+ 15 tables in four zones.
+
+ ZONE 1 - TENANCY AND IDENTITY
+   tenants               one agency
+   tenant_keys           envelope-encryption key material, one per agency
+   users                 no password column exists, by design
+
+ ZONE 2 - AGENCY, INSUREDS AND POLICY DATA
+   producers             the agency's own details (the PRODUCER box)
+   insurers              national NAIC reference data - the only table
+                         shared across agencies and the only one without
+                         row-level security
+   clients               the insured trucking companies
+   client_aliases        alternate spellings, feeding entity resolution
+   policies              one row per line of the ACORD coverage grid
+   vehicles              the fleet; these are what overflow to page two
+   certificate_holders   derived from requester signatures, de-duplicated
+
+ ZONE 3 - THE REQUEST PIPELINE (an ordered sequence)
+   coi_requests          inbound requests. Unique on (agency, message id),
+                         which is what makes polling idempotent
+   interpretations       reserved for machine-learning output retention.
+                         Currently unused - see Section 10
+   certificates          the frozen snapshot, versioned by revision
+   deliveries            written only after transmission succeeds
+
+ ZONE 4 - EVIDENCE
+   audit_log             append-only, hash-chained, no foreign keys
+
+ KEY MODELLING DECISIONS
+
+   COVERAGE LIMITS ARE STORED AS STRUCTURED DOCUMENTS, not columns. Each
+   coverage type carries a different set of limits; general liability has six
+   named limits, auto has four, cargo is free text. A column per limit would
+   mean roughly twenty mostly-empty columns and a schema migration every time
+   ACORD revises a form.
+
+   THE CERTIFICATE SNAPSHOT IS STORED WHOLE. An issued certificate holds the
+   complete document as it was approved. This is what allows a reprint years
+   later to show what was actually certified, rather than what the policy says
+   today.
+
+   THE AUDIT LOG DECLARES NO FOREIGN KEYS. Every other table cascades from the
+   agency record. If the audit log did too, honouring a deletion request would
+   erase the record of what was done.
+
+   INSURERS ARE NOT TENANT-SCOPED. NAIC codes are national. Copying them per
+   agency would mean many rows for the same carrier and many chances for them
+   to disagree.
+
+   VEHICLES CARRY AN EXPLICIT SORT ORDER. Fleets are listed in the order the
+   agency schedules them, not by year or VIN. Sorting on a stored column keeps
+   output reproducible, which the document hash requires, while still matching
+   the agency's source of record.
+
+
+-------------------------------------------------------------------------------
+ 6. SECURITY ARCHITECTURE
+-------------------------------------------------------------------------------
+
+ 6.1  THE THREAT THAT IS SPECIFIC TO THIS SYSTEM
+
+ The system holds an agency's client list, policy numbers, coverage limits,
+ fleet details and federal tax identifiers, and it holds credentials to their
+ mailbox. It can also produce documents that assert insurance coverage.
+
+ The consequential risks are therefore:
+   (a) disclosure of one agency's book of business to another party;
+   (b) issuance of a certificate stating coverage that does not exist;
+   (c) an inability to prove, after the fact, what was sent and by whom.
+
+ The architecture addresses these in that order of severity.
+
+
+ 6.2  LAYERED MODEL
+
+   L7  INCIDENT RESPONSE      runbook, notification obligations, insurance
+   L6  DATA MINIMISATION      timed purge, crypto-shredding
+   L5  INFRASTRUCTURE         private database, backups, network controls
+   L4  IMMUTABLE AUDIT        hash-chained, append-only
+   L3  ACCESS CONTROL         OIDC, MFA at the IdP, roles, row-level security
+   L2  CREDENTIAL HANDLING    no read path back to stored secrets
+   L1  ENCRYPTION AT REST     per-agency data keys under a master key
+
+
+ 6.3  IMPLEMENTATION STATUS
+
+   L1  Envelope encryption implemented and tested. NOT YET APPLIED to the
+       columns it is designed to protect.
+   L2  Mailbox credentials held in environment configuration. Migration to
+       per-agency OAuth outstanding.
+   L3  IMPLEMENTED AND VERIFIED. Unauthenticated requests refused; forged
+       cookies refused; cross-origin writes refused; a suspended account
+       refused on its existing session.
+   L4  IMPLEMENTED. No viewing interface yet.
+   L5  Deployment-dependent. Not yet provisioned for production.
+   L6  Purge dates recorded on every stored email. Purge executed manually;
+       scheduled job outstanding.
+   L7  Not started. Requires client policy input.
+
+
+ 6.4  TENANT ISOLATION - HOW IT ACTUALLY WORKS
+
+   HTTP request
+        |
+        v
+   Session resolved from a signed cookie. The agency identity comes from the
+   session, NEVER from the request body or query string.
+        |
+        v
+   The database connection has the agency identity set for the transaction.
+        |
+        v
+   Row-level security policies compare every row against it. Fourteen tables
+   have this forced.
+        |
+        v
+   A query missing an agency filter returns NOTHING, rather than another
+   agency's data.
+
+   The edge middleware that redirects unauthenticated visitors is a
+   convenience, NOT the boundary. It runs on the edge and cannot reach the
+   database. Every API route independently establishes its own session.
+
+
+ 6.5  AUTHENTICATION DESIGN
+
+   - No passwords are stored. There is no password column in the schema.
+   - The session cookie is a claim of IDENTITY. Authority is re-read from the
+     database on every request, so a suspension takes effect immediately
+     rather than at the next sign-in.
+   - Users are never created automatically at sign-in. A record must already
+     exist.
+   - Rotating one secret invalidates every session - the emergency revocation
+     lever.
+   - Session cookies are signed with Web Crypto rather than Node's crypto
+     module, because the middleware runs in an edge runtime where the Node
+     module is unavailable.
+
+
+-------------------------------------------------------------------------------
+ 7. DOCUMENT RENDERING ARCHITECTURE
+-------------------------------------------------------------------------------
+
+ This is the part of the system most specific to the problem domain.
+
+ THE PROBLEM
+   An ACORD 25 is a fixed legal form. Values must land inside printed boxes,
+   to the point. Two things must render it: an editable on-screen form, and a
+   PDF. If those two implementations drift, a reviewer approves one document
+   and the holder receives another.
+
+ THE SOLUTION
+   A single coordinate map is the sole definition of the form's geometry.
+
+     COORDINATE MAP (x, y, width, height, font size, per field)
+          |
+          +--> ON-SCREEN: HTML inputs absolutely positioned over an image of
+          |               the blank form, scaled to the display width
+          |
+          +--> PDF:       text stamped onto the blank PDF at the same
+                          coordinates, with the origin flipped
+
+   Changing a coordinate updates both. No component contains a hardcoded
+   position.
+
+ SUPPORTING DECISIONS
+
+   COORDINATES WERE MEASURED, NOT ESTIMATED. They were derived from a real
+   completed certificate by extracting the position of each printed value.
+
+   LINE BREAKING IS SHARED AND WIDTH-AWARE. One module computes text width
+   from real font metrics and breaks lines. Text is stored ALREADY WRAPPED, so
+   the two renderers cannot break it differently.
+
+   FIELD HEIGHTS ARE ENFORCED. A block that would exceed its box is clamped
+   rather than printed across the form's rules.
+
+   OUTPUT IS DETERMINISTIC. Document metadata is pinned so the same
+   certificate always produces byte-identical output. Without this, the stored
+   document hash would be worthless after any reprint, and the guarantee that
+   "what was approved is what was sent" could not be checked.
+
+   PAGE OVERFLOW IS COMPUTED, NOT GUESSED. The number of vehicles fitting on
+   page one is derived from wrapped line counts. The remainder moves to an
+   ACORD 101, and a vehicle entry is never split across the boundary.
+
+
+-------------------------------------------------------------------------------
+ 8. CONCURRENCY, IDEMPOTENCY AND FAILURE
+-------------------------------------------------------------------------------
+
+ MAILBOX POLLING IS AT-LEAST-ONCE AND SAFE.
+   De-duplication is a unique index on (agency, message id). A crash between
+   fetch and commit, two processes polling simultaneously, or a manual re-run
+   all produce the same result.
+
+ CONCURRENT DASHBOARDS SHARE ONE MAILBOX READ.
+   Callers arriving while a read is in progress wait for it. Callers arriving
+   within a minimum interval receive the previous outcome. This is
+   process-local and deliberately not a distributed lock - the unique index is
+   what makes duplication harmless regardless of process count.
+
+ CERTIFICATE NUMBERS ARE ALLOCATED UNDER A LOCK.
+   Two reviewers acting simultaneously cannot receive the same number. A
+   unique constraint on (agency, number, revision) is the backstop.
+
+ AUDIT ENTRIES COMMIT WITH THEIR CHANGE.
+   Written in the same transaction as the change they record. An action and
+   its record commit together or not at all.
+
+ DELIVERY SENDS BEFORE RECORDING.
+   If transmission fails, nothing is written. The opposite order would allow
+   recording a delivery that never happened.
+
+ DRAFTING FAILURE DOES NOT FAIL INTAKE.
+   One client's incomplete policy data does not cost an entire run of incoming
+   mail. The request appears either way.
+
+
+-------------------------------------------------------------------------------
+ 9. DEPLOYMENT TOPOLOGY
+-------------------------------------------------------------------------------
+
+                    Reviewers' browsers
+                            |
+                            | HTTPS
+                            v
+                 +----------------------+
+                 |  Next.js application |
+                 |  (single process,    |
+                 |   stateless)         |
+                 +----------+-----------+
+                            |
+              +-------------+--------------+
+              |                            |
+              v                            v
+     +-----------------+        +---------------------+
+     |  PostgreSQL     |        |  Gmail              |
+     |  (private)      |        |  IMAP read-only     |
+     |                 |        |  SMTP send          |
+     +-----------------+        +---------------------+
+
+ CHARACTERISTICS
+   - The application holds no session state. Sessions are signed cookies.
+   - TWO PROCESSES. The web server answers browsers; a WATCHER process holds
+     one long-lived connection to the mailbox. A long-lived mail connection is
+     a worker concern: inside the web server it would restart on every
+     deployment and duplicate itself across instances.
+   - The web server also starts a watcher when a dashboard connects, so a
+     single process is enough in development. Set GMAIL_WATCH=0 on the web
+     process to leave the job to the worker.
+   - TWO WATCHERS ARE HARMLESS. Both ingesting the same message is a no-op:
+     the unique index on (tenant, message id) is what makes it safe, and that
+     is enforced by the database rather than by coordination between processes.
+   - NOTIFICATIONS CROSS PROCESSES THROUGH POSTGRES. The watcher publishes
+     "something changed" and the web server, which holds the browser
+     connections, receives it and pushes it on. An in-memory event bus would
+     deliver to whichever process happened to notice the mail, which with a
+     separate watcher is none of them.
+   - Connection note: the current database provider's direct endpoint is
+     IPv6-only. Deployments without IPv6 must use the SESSION POOLER endpoint -
+     which is also required for the cross-process notifications above. The
+     transaction pooler will not deliver them.
+
+ SCALING
+   Horizontal scaling is possible without change: the application is
+   stateless, and duplicate ingestion is prevented by the database rather than
+   by process coordination. A distributed lock is not required.
+
+
+-------------------------------------------------------------------------------
+ 10. KNOWN ARCHITECTURAL GAPS
+-------------------------------------------------------------------------------
+
+ Stated plainly. None of these are hidden in the design.
+
+ G1  NO AGENCY MANAGEMENT SYSTEM INTEGRATION.
+     Policy, vehicle and client data resides in CertFlow's own database and
+     must be loaded into it. This is the largest outstanding item and is
+     covered in the Scope of Work, Section 7.
+
+ G2  MAILBOX AUTHENTICATION IS AN APP PASSWORD.
+     Adequate for a mailbox the agency owns. Unsuitable for production because
+     it cannot be scoped or revoked per integration. Replacement is confined
+     to one module.
+
+ G3  ENCRYPTION IS BUILT BUT NOT WIRED.
+     The envelope encryption module is complete and tested; no column
+     currently passes through it.
+
+ G4  THE PURGE JOB IS MANUAL.
+     Purge dates are recorded correctly. Nothing executes them on a schedule.
+
+ G5  NO RATE LIMITING.
+     No request throttling exists on any route.
+
+ G6  NO AUDIT VIEWER.
+     The audit data is complete and queryable but has no user interface.
+
+ G7  THE INTERPRETATIONS TABLE IS UNUSED.
+     It was designed to retain machine-learning output for audit and replay.
+     The current pipeline resolves insureds using deterministic rules, so
+     nothing writes to it. It is the seam a language model would occupy.
+
+ G8  NO CODE LINTING CONFIGURED.
+     Type checking runs and passes; a linter has never been configured.
+
+ G9  NOTIFICATIONS ARE BEST-EFFORT.
+     The cross-process channel is fire-and-forget. A dropped notification means
+     a slower update, never a wrong screen - the dashboard still refreshes on
+     its own timer and on tab focus. Acceptable because the message carries no
+     data, only "go and look".
+
+ G10 THE WATCHER RESOLVES ITS TENANT ONCE PER CONNECTION.
+     Fine in production, where a tenant row outlives the process. In
+     development, re-seeding deletes and recreates the tenant, so a watcher
+     started beforehand holds a dead reference and every ingest fails. Restart
+     the watcher after seeding.
+
+ G11 DETECTION IS 7-8 SECONDS, NOT SUB-SECOND.
+     About 4 seconds of that is the ingest itself - fetching the message and
+     writing it. Database round trips are ~63ms and are not the bottleneck.
+     Getting materially below this means optimising the ingest path, which has
+     not been attempted.
+
+ G12 SINGLE TENANT EXERCISED.
+     The architecture is multi-tenant and enforced at the database level, but
+     only one agency has been run against it.
+
+
+-------------------------------------------------------------------------------
+ 11. SIGNIFICANT DECISIONS AND THEIR RATIONALE
+-------------------------------------------------------------------------------
+
+ D1  NO MACHINE LEARNING IN THE REQUEST PATH.
+     Interpretation uses deterministic rules and database similarity search.
+     Reasons: free cloud model tiers train on submitted data, which is a
+     regulatory problem for insurance personal information rather than a
+     preference; and a deterministic component can be tested exhaustively.
+     The interface is defined as "text in, candidate names out", so a model
+     can replace one module later without touching anything downstream.
+
+ D2  ROW-LEVEL SECURITY RATHER THAN APPLICATION FILTERING.
+     A forgotten filter in application code leaks data. A forgotten filter
+     under row-level security returns nothing. The failure modes are not
+     comparable.
+
+ D3  NO BACKGROUND DAEMON.
+     Polling is driven by open dashboards. The mailbox is only read on behalf
+     of someone watching the result. This avoids a process writing to the
+     database unobserved, and nothing is lost because request timestamps come
+     from the email.
+
+ D4  DATES AND MONETARY VALUES ARE STORED AS PRE-FORMATTED STRINGS.
+     Nothing is parsed or localised at render time. This eliminates an entire
+     class of server/client rendering mismatch, and matches how the values
+     appear on the source documents.
+
+ D5  DRAFTING AUTOMATED, ISSUING NOT.
+     Drafting is transcription and has no judgement in it. Issuing and sending
+     are irreversible and carry professional liability.
+
+ D6  STAY ON THE CURRENT PLATFORM.
+     A migration to a Java stack was evaluated and deferred. Business logic is
+     kept framework-independent so that a later port remains inexpensive.
+
+ D7  TYPESCRIPT FOR THE BACKEND, PLAIN JAVASCRIPT FOR THE UI COMPONENTS.
+     Type safety is applied where correctness of data handling matters most.
+
+
+===============================================================================
+ END OF DOCUMENT
+===============================================================================

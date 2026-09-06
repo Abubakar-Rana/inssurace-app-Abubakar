@@ -1,0 +1,560 @@
+===============================================================================
+ CERTFLOW - SYSTEM CONSTRAINTS AND BUSINESS INTEGRATION REQUIREMENTS
+ What an agency must have, provide and decide before CertFlow can run
+===============================================================================
+
+ Version           [0.1 DRAFT]
+ Date              [DD MONTH YYYY]
+ Prepared by       [YOUR NAME], Nestnic Solutions
+
+ This document exists because most of what stands between a working
+ demonstration and a working business system is not code. It is licensing,
+ data access, identity, and agreement about who does what.
+
+ Items are marked:
+   BLOCKER    production cannot proceed without it
+   REQUIRED   needed for go-live
+   ADVISED    strongly recommended
+
+
+===============================================================================
+ PART 1 - LEGAL AND LICENSING
+===============================================================================
+
+-------------------------------------------------------------------------------
+ 1.1  ACORD FORMS LICENCE                                            BLOCKER
+-------------------------------------------------------------------------------
+
+ CertFlow reproduces the ACORD 25 Certificate of Liability Insurance and the
+ ACORD 101 Additional Remarks Schedule programmatically.
+
+ ACORD forms are copyrighted. Reproducing them in software requires a licence
+ from ACORD, and the licence terms govern how the forms may be generated,
+ stored and distributed.
+
+ THE AGENCY IS RESPONSIBLE FOR HOLDING THIS LICENCE.
+
+ WHAT TO DO
+   - Confirm whether an existing agency licence already covers programmatic
+     reproduction, or whether a separate software licence is required.
+   - Begin the application early. This is a LONG-LEAD ITEM and is not within
+     the supplier's control.
+   - Confirm the licensed form editions. The system is calibrated to the
+     ACORD 25 (2025/12) and ACORD 101 (2008/01) editions. A different edition
+     requires re-derivation of the form coordinate map.
+
+ RISK IF UNRESOLVED
+   The system cannot lawfully be used in production. This is the single
+   hardest prerequisite to retrofit.
+
+
+-------------------------------------------------------------------------------
+ 1.2  AUTHORITY TO ISSUE CERTIFICATES                                BLOCKER
+-------------------------------------------------------------------------------
+
+ The agency must confirm that the staff who will approve certificates in
+ CertFlow hold the appropriate producer licences in the states concerned, and
+ that automated preparation with human approval is consistent with the
+ agency's errors-and-omissions carrier's expectations.
+
+ CertFlow records who approved each certificate, which supports this. It does
+ not verify licensure.
+
+ WHAT TO DO
+   - Confirm with the agency's E&O carrier that the workflow is acceptable.
+   - Confirm which named individuals may approve.
+
+
+-------------------------------------------------------------------------------
+ 1.3  DATA PROTECTION AND PRIVACY                                   REQUIRED
+-------------------------------------------------------------------------------
+
+ The system holds client business information, policy details, fleet records
+ and federal tax identifiers, and it reads a mailbox containing third-party
+ correspondence.
+
+ WHAT TO DO
+   - Confirm the agency's obligations under the Gramm-Leach-Bliley Act
+     Safeguards Rule and any applicable state insurance data security law
+     (for example the NAIC Insurance Data Security Model Law as adopted).
+   - Execute a data processing agreement between the agency and the supplier.
+   - Identify and approve subprocessors: the database host, the application
+     host, and the mail provider.
+   - Confirm the retention period. The system currently purges stored email
+     bodies after 30 days. Confirm this satisfies, and does not conflict with,
+     the agency's own record-keeping obligations.
+
+ WHAT THE SYSTEM ALREADY DOES
+   - Mail that is not a certificate request is never stored.
+   - Stored email bodies carry a purge date set at ingestion.
+   - The audit log stores references and hashes, never message content.
+   - Per-agency encryption keys allow a complete crypto-shred on request
+     without destroying the audit trail.
+
+
+===============================================================================
+ PART 2 - DATA
+===============================================================================
+
+-------------------------------------------------------------------------------
+ 2.1  SOURCE OF POLICY DATA                                          BLOCKER
+-------------------------------------------------------------------------------
+
+ THIS IS THE LARGEST INTEGRATION DECISION AND IT DRIVES THE TIMELINE.
+
+ Every value CertFlow prints is read from a policy record held in its own
+ database. There is currently NO live connection to an agency management
+ system. Those records must get in, and stay current.
+
+ THREE ROUTES
+
+   ROUTE A - LIVE API INTEGRATION
+     Direct connection to AMS360, Applied Epic or equivalent.
+     Requires:   vendor API access (usually licensed separately), API
+                 credentials, vendor approval, and documentation.
+     Data is:    always current.
+     Risk:       vendor may not expose the needed entities, may charge
+                 significantly, or may require a partner agreement.
+
+   ROUTE B - SCHEDULED IMPORT
+     Recurring export from the management system, imported on a schedule.
+     Requires:   an export capability, an agreed file format, a delivery
+                 mechanism, and an agreed frequency.
+     Data is:    as current as the last export.
+     Risk:       a certificate could be issued against a policy that lapsed
+                 or changed since the last import. THE EXPORT FREQUENCY MUST
+                 BE SHORT ENOUGH THAT THIS CANNOT HAPPEN IN PRACTICE.
+
+   ROUTE C - MAINTAINED IN CERTFLOW
+     Policy and fleet data entered and maintained directly.
+     Requires:   no integration.
+     Data is:    as current as manual maintenance.
+     Risk:       creates a second system of record. NOT RECOMMENDED for any
+                 agency of meaningful size, because the two will diverge.
+
+ WHAT TO DO
+   - Decide the route. This cannot be deferred; it blocks estimation of every
+     downstream phase.
+   - For Route A: identify the vendor contact and begin the API access
+     request.
+   - For Route B: provide a sample export.
+   - For Route C: confirm who maintains the data and how changes are caught.
+
+ DATA REQUIRED IN ALL CASES
+     Insureds        legal name, trading names, address, client number,
+                     DOT number, MC number, tax identifier
+     Aliases         alternate spellings the agency has seen in the wild.
+                     THESE MATERIALLY IMPROVE MATCHING ACCURACY.
+     Policies        carrier, NAIC code, policy number, effective and expiry
+                     dates, coverage type, limits, additional-insured and
+                     waiver-of-subrogation status
+     Vehicles        year, make, model, VIN, stated value, deductibles, and
+                     the schedule order used by the agency
+     Producer        the agency's own name, address, contact, phone and email
+                     as they must appear in the PRODUCER box
+     Standard text   endorsement and description-of-operations wording, which
+                     is printed VERBATIM. The system does not compose legal
+                     language.
+
+
+-------------------------------------------------------------------------------
+ 2.2  DATA QUALITY                                                  REQUIRED
+-------------------------------------------------------------------------------
+
+ CONSTRAINT: the system's accuracy is bounded by the accuracy of the records
+ it reads. It removes transcription error. It cannot detect that a policy
+ record itself is wrong or stale.
+
+ WHAT TO DO
+   - Confirm that expired policies are marked as such in the source system.
+     CertFlow selects active policies; it relies on that status being correct.
+   - Confirm the vehicle schedule is maintained. A missing unit produces a
+     certificate that omits it.
+   - Supply known aliases. A company that writes in as "Smartway Solutions"
+     when the record says "Smart Way Solutions Inc" is matched only because
+     the alias exists or the similarity is close enough.
+
+
+-------------------------------------------------------------------------------
+ 2.3  HISTORICAL CERTIFICATES                                        ADVISED
+-------------------------------------------------------------------------------
+
+ CONSTRAINT: certificates issued before go-live do not exist in CertFlow.
+ Migration is out of scope by default.
+
+ CONSEQUENCE: a correction to a pre-go-live certificate cannot be issued as a
+ revision of it, because the original is not in the system.
+
+ WHAT TO DO
+   - Decide whether that is acceptable, or whether a migration is required as
+     a change request.
+
+
+===============================================================================
+ PART 3 - EMAIL
+===============================================================================
+
+-------------------------------------------------------------------------------
+ 3.1  A DEDICATED MAILBOX                                           REQUIRED
+-------------------------------------------------------------------------------
+
+ CONSTRAINT: the system currently supports Google Workspace / Gmail only.
+ Microsoft 365 is not supported in this phase.
+
+ WHAT TO DO
+   - Provide a dedicated mailbox used only for certificate requests, for
+     example certificates@[agency-domain].
+   - Publish that address to brokers, shippers and load boards.
+   - Do NOT point CertFlow at a general agency inbox. It will function - the
+     classifier filters non-requests - but a dedicated mailbox produces a far
+     cleaner audit position and materially fewer misclassifications.
+
+ WHAT THE SYSTEM ALREADY DOES
+   - Opens the mailbox READ-ONLY. It cannot mark, move or delete mail.
+   - Never stores mail that is not a certificate request.
+   - Reports every skipped message and the reason, so an incorrect exclusion
+     is reviewable.
+
+
+-------------------------------------------------------------------------------
+ 3.2  MAILBOX AUTHORISATION                                          BLOCKER
+-------------------------------------------------------------------------------
+
+ CURRENT STATE: authentication uses a Google App Password. This is acceptable
+ for development against a mailbox the supplier controls. IT IS NOT ACCEPTABLE
+ FOR PRODUCTION, because an App Password grants full read and send access to
+ the entire account and cannot be scoped or revoked per integration.
+
+ REQUIRED FOR PRODUCTION: OAuth 2.0, scoped to read-only mail access, granted
+ by the agency and revocable by the agency without affecting anything else.
+
+ WHAT TO DO
+   - Create a Google Cloud project under the agency's own organisation.
+   - Configure the consent screen and request the read-only mail scope.
+   - Grant administrative consent.
+   - Note that Google may require a security assessment for restricted mail
+     scopes. THIS IS A LONG-LEAD ITEM. Begin it early.
+
+ SUPPLIER RESPONSIBILITY
+   The code change is confined to a single module and is included in scope.
+
+
+-------------------------------------------------------------------------------
+ 3.3  OUTBOUND DELIVERY AND SENDER REPUTATION                       REQUIRED
+-------------------------------------------------------------------------------
+
+ CONSTRAINT: certificates are delivered as replies from the configured
+ mailbox. If that mailbox's domain is not properly authenticated, replies
+ carrying PDF attachments are liable to be filtered as spam by recipients.
+
+ WHAT TO DO
+   - Confirm SPF, DKIM and DMARC are correctly published for the sending
+     domain.
+   - Confirm the sending address is one that brokers will recognise and trust.
+   - Confirm Google Workspace sending limits are adequate for expected volume.
+
+ WHAT THE SYSTEM ALREADY DOES
+   - Replies IN THE ORIGINAL THREAD, using the standard threading headers, so
+     the certificate lands directly beneath the request.
+   - Refuses to send to malformed addresses and to reserved test domains,
+     which prevents demonstration data from reaching a real company.
+   - Sends only after a human confirms the recipient address.
+
+
+-------------------------------------------------------------------------------
+ 3.4  APPROVAL TO WRITE TO REQUESTERS AUTOMATICALLY                 REQUIRED
+-------------------------------------------------------------------------------
+
+ The system sends ONE kind of message without a person pressing anything: a
+ question back to the requester when two of the agency's own clients are named
+ too alike to tell apart. It asks which company they meant and offers a USDOT
+ or MC number as the reliable way to say so.
+
+ WHY IT EXISTS
+   The agency's records genuinely cannot answer the question. "Smart Way
+   Solutions Inc" and "Smart Way Solutions LLC" are different companies with
+   different policies, and nothing in the file says which one a stranger meant.
+   The requester does know. Routing it to a reviewer instead means a person
+   guessing on the same information the machine had.
+
+ WHAT IT CONTAINS
+   No coverage, no limits, no policy numbers and no document. It names only the
+   companies the requester's own words already implied - never the wider client
+   list, and never their addresses or client numbers.
+
+ WHAT TO DECIDE
+   - Is the agency content for the system to reply to requesters on its own?
+   - Does the wording suit the agency's voice? It is a fixed template and can
+     be edited.
+   - Should it be switched off? It can be, in which case those requests go to
+     a reviewer exactly as every other unresolved one does.
+
+ GUARDRAILS ALREADY IN PLACE
+   It asks once per request, obeys the same recipient rules as certificates,
+   and skips its own output on the way back in.
+
+
+-------------------------------------------------------------------------------
+ 3.5  REQUEST FORMAT LIMITS                                          ADVISED
+-------------------------------------------------------------------------------
+
+ THE SYSTEM CAN INTERPRET
+   - Plain text and HTML email.
+   - Requests that name the insured in a recognised construction: after
+     "COI for", behind an "Insured:" label, in the subject line, and similar.
+   - English.
+
+ THE SYSTEM CANNOT INTERPRET
+   - Requests where the insured is named ONLY inside a PDF or image
+     attachment. There is no document text recognition.
+   - Requests that name the insured only by implication ("the usual
+     certificate", "same as last time").
+   - Languages other than English.
+   - Requests submitted through a web portal rather than email.
+
+ WHAT HAPPENS INSTEAD
+   These are not lost. They arrive on the dashboard marked as needing a human,
+   with the email shown and a searchable list of insureds. A reviewer resolves
+   them in a few seconds. THIS IS THE DESIGNED BEHAVIOUR, NOT A FAILURE.
+
+ WHAT TO DO
+   - Supply [N] real, anonymised requests during onboarding so the extraction
+     rules can be calibrated against the phrasing the agency actually
+     receives.
+   - Confirm whether requesters routinely supply USDOT or MC numbers. Where
+     they do, ambiguous requests resolve themselves without a reviewer.
+
+
+===============================================================================
+ PART 4 - IDENTITY AND ACCESS
+===============================================================================
+
+-------------------------------------------------------------------------------
+ 4.1  IDENTITY PROVIDER                                              BLOCKER
+-------------------------------------------------------------------------------
+
+ CONSTRAINT: CertFlow stores no passwords, by design. There is no password
+ column in the database and no password reset flow. Authentication is
+ delegated entirely to the agency's identity provider.
+
+ SUPPORTED: Google Workspace, or Microsoft Entra ID, via OpenID Connect.
+
+ WHAT TO DO
+   - Register CertFlow as an application in the agency's identity tenant.
+   - Provide the issuer URL, client identifier and client secret.
+   - Configure the redirect URI supplied by the supplier.
+   - CONFIRM MULTI-FACTOR AUTHENTICATION IS ENFORCED. The system relies on the
+     identity provider for this; it does not implement its own.
+
+ CONSEQUENCE IF NOT DONE
+   Sign-in falls back to a development path that REFUSES TO OPERATE in a
+   production environment. A missing configuration therefore locks everyone
+   out rather than letting anyone in - which is the intended failure mode.
+
+
+-------------------------------------------------------------------------------
+ 4.2  USER PROVISIONING                                             REQUIRED
+-------------------------------------------------------------------------------
+
+ CONSTRAINT: users are NEVER created automatically at sign-in. A record must
+ already exist, or anyone with a Google account could reach the agency's data.
+ There is currently no self-service user administration screen; users are
+ provisioned by the supplier or by direct database operation.
+
+ WHAT TO DO
+   - Supply the list of users, their email addresses, and their roles:
+
+       ADMINISTRATOR   full access, including configuration
+       REVIEWER        may draft, edit, approve and send
+       READ-ONLY       may view, may not approve or send
+
+   - Nominate who may APPROVE and SEND. This is the accountable act; the
+     system records the individual against every issued certificate.
+   - Define the process for removing access when someone leaves. Suspension
+     takes effect on the user's NEXT REQUEST, not at their next sign-in.
+
+
+===============================================================================
+ PART 5 - INFRASTRUCTURE
+===============================================================================
+
+-------------------------------------------------------------------------------
+ 5.1  HOSTING AND DATABASE                                          REQUIRED
+-------------------------------------------------------------------------------
+
+ REQUIRED
+   - A PostgreSQL 15 or later instance, not publicly reachable.
+   - A Node.js 20 or later application host.
+   - TLS on all endpoints.
+   - Automated backups with a confirmed and TESTED restore procedure.
+   - Secret storage for the master encryption key, session signing secret,
+     database credentials and mail credentials.
+
+ DECISIONS THE AGENCY MUST MAKE
+   - Data residency. Where must the data physically reside?
+   - Retention of backups, and whether backups fall inside the deletion
+     obligations in 1.3.
+   - Who holds the master encryption key, and what the recovery procedure is
+     if it is lost. LOSING IT RENDERS ENCRYPTED DATA PERMANENTLY UNREADABLE.
+     That property is deliberate - it is what makes crypto-shredding work -
+     but it means key custody is a serious operational responsibility.
+
+ KNOWN CONSTRAINT
+   The current database provider's direct endpoint is IPv6-only. A deployment
+   without IPv6 connectivity must use the provider's session pooler endpoint.
+
+
+-------------------------------------------------------------------------------
+ 5.2  AVAILABILITY EXPECTATIONS                                      ADVISED
+-------------------------------------------------------------------------------
+
+ CONSTRAINT: the system now runs as TWO PROCESSES - a web server and a mailbox
+ watcher. The watcher must be kept running for mail to be ingested when nobody
+ has the dashboard open.
+
+ WHAT TO DECIDE
+   - How the watcher process is supervised and restarted. It reconnects on its
+     own after a dropped connection, but not after the host restarts.
+   - Who is alerted if it stops. A stopped watcher looks exactly like a quiet
+     mailbox from the dashboard's point of view.
+
+ EXPECTED PERFORMANCE
+   7-8 seconds from a request landing in the mailbox to appearing on screen,
+   with no user interaction and no page reload. The sender's own mail provider
+   typically adds another 5-7 seconds before the message is visible to us at
+   all, which is outside this system.
+
+ THE DATABASE CONNECTION MODE MATTERS
+   The two processes notify each other through PostgreSQL. This requires a
+   SESSION-mode connection. A transaction-pooled connection will not deliver
+   the notifications, and the dashboard would fall back to a slow refresh
+   without any error being raised.
+
+
+-------------------------------------------------------------------------------
+ 5.3  MONITORING                                                    REQUIRED
+-------------------------------------------------------------------------------
+
+ WHAT TO DO
+   - Decide who is alerted if the mailbox connection fails.
+   - Decide who is alerted if the application is unavailable.
+   - Establish an escalation path.
+
+ WHAT THE SYSTEM ALREADY DOES
+   Repeated mailbox failures, or any permission error, STOP the automatic
+   check and display that on screen with a retry control. It does not fail
+   silently. But nothing currently notifies anyone who is not looking at the
+   screen.
+
+
+===============================================================================
+ PART 6 - BUSINESS PROCESS
+===============================================================================
+
+-------------------------------------------------------------------------------
+ 6.1  THE REVIEWER ROLE                                             REQUIRED
+-------------------------------------------------------------------------------
+
+ CONSTRAINT AND DESIGN INTENT: the system prepares documents. IT DOES NOT
+ ISSUE OR SEND THEM. A person must approve and a person must send.
+
+ This is not a limitation to be engineered away. It is the control that keeps
+ professional accountability with a licensed human being, and it is what makes
+ the audit trail meaningful.
+
+ WHAT TO DECIDE
+   - Who reviews, and during which hours.
+   - Target turnaround from request received to certificate sent.
+   - What happens during absence, leave, and peak periods.
+   - What a reviewer should do when the certificate looks wrong. (The
+     underlying policy record is corrected in the source system, and the
+     certificate is regenerated.)
+
+ IMPLICATION FOR EXPECTED BENEFIT
+   The time saved is transcription time, not review time. If the agency
+   expects certificates to leave without human involvement, that expectation
+   is inconsistent with the system as designed and as scoped.
+
+
+-------------------------------------------------------------------------------
+ 6.2  HANDLING ABSTENTIONS                                          REQUIRED
+-------------------------------------------------------------------------------
+
+ The system deliberately declines to identify an insured when two similarly
+ named companies are close, or when the email never said clearly.
+
+ EXPECT A PROPORTION OF REQUESTS TO REQUIRE HUMAN IDENTIFICATION. The exact
+ proportion depends on the agency's client list and its correspondents'
+ phrasing, and can only be established against real mail.
+
+ WHAT TO DECIDE
+   - Who handles these, and how quickly.
+   - Note that supplying good aliases (2.1) directly reduces the count.
+
+
+-------------------------------------------------------------------------------
+ 6.3  VOLUME                                                         ADVISED
+-------------------------------------------------------------------------------
+
+ WHAT TO PROVIDE
+   - Expected certificate requests per day, and peak.
+   - Typical fleet size. Fleets larger than roughly six units overflow to a
+     second page, which is handled automatically but should be expected.
+   - Number of active insureds. Matching accuracy is affected by how many
+     similarly named companies exist in the list.
+
+
+===============================================================================
+ PART 7 - ONBOARDING CHECKLIST
+===============================================================================
+
+ Complete in this order. Items marked (LEAD) should be started immediately
+ because they depend on third parties.
+
+   [ ]  1.1  ACORD forms licence confirmed or applied for        (LEAD)
+   [ ]  3.2  Google Cloud project and mail scope consent         (LEAD)
+   [ ]  2.1  Policy data route decided (A, B or C)               (BLOCKS ALL)
+   [ ]  1.2  E&O carrier confirmation obtained
+   [ ]  1.3  Data processing agreement executed
+   [ ]  4.1  Identity provider registration completed
+   [ ]  4.2  User list and roles supplied
+   [ ]  3.1  Dedicated mailbox created and published
+   [ ]  3.3  SPF, DKIM and DMARC verified on the sending domain
+   [ ]  5.1  Hosting, database and secret storage provisioned
+   [ ]  2.1  Producer details and standard wording supplied
+   [ ]  2.1  Insured, alias, policy and vehicle data loaded
+   [ ]  3.4  Sample real requests supplied for calibration
+   [ ]  6.1  Reviewers nominated and hours agreed
+   [ ]  5.3  Monitoring and escalation path agreed
+   [ ]  ---  User acceptance testing completed
+   [ ]  ---  Training delivered
+   [ ]  ---  Go-live
+
+
+===============================================================================
+ SUMMARY - THE FIVE THINGS THAT WILL DELAY GO-LIVE
+===============================================================================
+
+ In order of likelihood, based on what depends on third parties:
+
+  1.  THE ACORD FORMS LICENCE. Outside everyone's control, long lead time,
+      and cannot be worked around.
+
+  2.  THE POLICY DATA DECISION. Blocks estimation of every downstream phase.
+      Route A depends on a vendor who may say no, or may charge heavily.
+
+  3.  GOOGLE'S MAIL SCOPE REVIEW. Restricted scopes may trigger a security
+      assessment.
+
+  4.  DATA QUALITY IN THE SOURCE SYSTEM. Aliases and vehicle schedules are
+      frequently incomplete, and this is usually discovered during acceptance
+      testing rather than before it.
+
+  5.  REVIEWER AVAILABILITY. The system produces documents that require a
+      person. If that person is not assigned, the throughput benefit does not
+      materialise regardless of how well the software works.
+
+
+===============================================================================
+ END OF DOCUMENT
+===============================================================================

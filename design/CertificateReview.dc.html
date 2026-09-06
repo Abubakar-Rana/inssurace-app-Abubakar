@@ -1,0 +1,303 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #33415c; text-decoration: none; } a:hover { color: #141b2d; }
+    .cap { font-size: 4.4px; font-weight: 700; letter-spacing: 0.01em; color: #141b2d; line-height: 1.25; }
+    .val { font-size: 5.6px; color: #141b2d; line-height: 1.3; }
+    .bx { border-right: 0.5px solid #b9bec8; border-bottom: 0.5px solid #b9bec8; padding: 2.5px 3px; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 1000px; display: flex; flex-direction: column; background: #ffffff; color: #141b2d; overflow: hidden;">
+
+  <!-- ───────── top bar: identity + the two distinct acts ───────── -->
+  <div style="height: 56px; flex: none; border-bottom: 1px solid #e6e8ec; display: flex; align-items: center; gap: 14px; padding: 0 20px;">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4b5a76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7" /></svg>
+
+    <div style="display: flex; align-items: baseline; gap: 9px;">
+      <span style="font-size: 15px; font-weight: 600; letter-spacing: -0.01em;">COI-2026-0018</span>
+      <span style="font-size: 12.5px; color: #8a94a6;">Revision 0</span>
+    </div>
+
+    <!-- Draft is a state, not a warning: an outline, no fill. -->
+    <span style="height: 20px; display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid #d7dbe2; border-radius: 5px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: #4b5a76;">Draft</span>
+
+    <span style="font-size: 12.5px; color: #8a94a6;">Smart Way Solutions Inc · #10041</span>
+
+    <div style="flex-grow: 1;"></div>
+
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <button style="height: 32px; padding: 0 13px; border: 1px solid #d7dbe2; border-radius: 7px; background: #ffffff; color: #33415c; font-size: 12.5px; font-weight: 500; font-family: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16v4z" /><path d="M13.5 6.5l4 4" /></svg>
+        Edit fields
+      </button>
+      <button style="height: 32px; padding: 0 13px; border: 1px solid #d7dbe2; border-radius: 7px; background: #ffffff; color: #33415c; font-size: 12.5px; font-weight: 500; font-family: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0l-4-4m4 4l4-4" /><path d="M5 19h14" /></svg>
+        Download
+      </button>
+      <button style="height: 32px; padding: 0 16px; border: 0; border-radius: 7px; background: {{accent}}; color: #ffffff; font-size: 12.5px; font-weight: 600; font-family: inherit; cursor: pointer;">Approve &amp; issue</button>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; display: flex; min-height: 0;">
+
+    <!-- ───────── the document ───────── -->
+    <div style="flex-grow: 1; background: #f2f4f7; display: flex; flex-direction: column; align-items: center; min-width: 0; padding-top: 18px;">
+
+      <!-- page switcher: the ACORD 101 exists only when page 1 overflows -->
+      <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 14px; padding: 3px; background: #e4e7ec; border-radius: 8px;">
+        <span style="height: 26px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: 6px; background: #ffffff; font-size: 12px; font-weight: 600; color: #141b2d;">ACORD 25</span>
+        <span style="height: 26px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: 6px; font-size: 12px; font-weight: 500; color: #64748b;">ACORD 101 · 5 vehicles</span>
+      </div>
+
+      <!-- 612 x 792 pt at 0.855 -->
+      <div style="width: 523px; height: 677px; background: #ffffff; box-shadow: 0 1px 3px rgba(20,27,45,0.10), 0 8px 24px -8px rgba(20,27,45,0.18); border: 0.5px solid #cfd4dc; display: flex; flex-direction: column; overflow: hidden;">
+
+        <!-- title band -->
+        <div style="display: flex; align-items: center; border-bottom: 0.5px solid #b9bec8;">
+          <span style="width: 92px; padding: 6px 8px; font-size: 10px; font-weight: 300; letter-spacing: 0.12em; color: #6b7280;">ACORD</span>
+          <span style="flex-grow: 1; text-align: center; font-size: 10.5px; font-weight: 700; letter-spacing: -0.01em;">CERTIFICATE OF LIABILITY INSURANCE</span>
+          <div style="width: 96px; border-left: 0.5px solid #b9bec8; padding: 3px 5px;">
+            <div class="cap">DATE (MM/DD/YYYY)</div>
+            <div class="val" style="background: {{tint}}; display: inline-block; padding: 0 2px;">07/16/2026</div>
+          </div>
+        </div>
+
+        <!-- disclaimer -->
+        <div style="padding: 4px 6px; border-bottom: 0.5px solid #b9bec8; font-size: 4.3px; line-height: 1.5; font-weight: 700; color: #33415c;">
+          THIS CERTIFICATE IS ISSUED AS A MATTER OF INFORMATION ONLY AND CONFERS NO RIGHTS UPON THE CERTIFICATE HOLDER. THIS CERTIFICATE DOES NOT AFFIRMATIVELY OR NEGATIVELY AMEND, EXTEND OR ALTER THE COVERAGE AFFORDED BY THE POLICIES BELOW.  THIS CERTIFICATE OF INSURANCE DOES NOT CONSTITUTE A CONTRACT BETWEEN THE ISSUING INSURER(S), AUTHORIZED REPRESENTATIVE OR PRODUCER, AND THE CERTIFICATE HOLDER.
+        </div>
+        <div style="padding: 4px 6px; border-bottom: 0.5px solid #b9bec8; font-size: 4.3px; line-height: 1.5; font-weight: 700; color: #33415c;">
+          IMPORTANT:  If the certificate holder is an ADDITIONAL INSURED, the policy(ies) must have ADDITIONAL INSURED provisions or be endorsed.  If SUBROGATION IS WAIVED, subject to the terms and conditions of the policy, certain policies may require an endorsement.
+        </div>
+
+        <!-- producer / contact -->
+        <div style="display: flex; border-bottom: 0.5px solid #b9bec8;">
+          <div style="width: 246px; border-right: 0.5px solid #b9bec8; padding: 3px 5px;">
+            <div class="cap">PRODUCER</div>
+            <div class="val" style="margin-top: 5px;">Whittington Agency, LLC</div>
+            <div class="val">2514 Walker Ave</div>
+            <div class="val">Greensboro, NC 27403</div>
+          </div>
+          <div style="flex-grow: 1; display: flex; flex-direction: column;">
+            <div style="display: flex; border-bottom: 0.5px solid #b9bec8;">
+              <div style="width: 54px; padding: 2px 4px;"><div class="cap">CONTACT<br>NAME:</div></div>
+              <div style="flex-grow: 1; padding: 2px 4px;"><span class="val">Certificate Department</span></div>
+            </div>
+            <div style="display: flex; border-bottom: 0.5px solid #b9bec8;">
+              <div style="width: 54px; padding: 2px 4px;"><div class="cap">PHONE<br>(A/C, No, Ext):</div></div>
+              <div style="flex-grow: 1; padding: 2px 4px; border-right: 0.5px solid #b9bec8;"><span class="val">336-390-1319</span></div>
+              <div style="width: 34px; padding: 2px 4px;"><div class="cap">FAX<br>(A/C, No):</div></div>
+              <div style="width: 74px; padding: 2px 4px;"><span class="val">336-441-5555</span></div>
+            </div>
+            <div style="display: flex; border-bottom: 0.5px solid #b9bec8;">
+              <div style="width: 54px; padding: 2px 4px;"><div class="cap">E-MAIL<br>ADDRESS:</div></div>
+              <div style="flex-grow: 1; padding: 2px 4px;"><span class="val">certificates@whittingtonagency.com</span></div>
+            </div>
+            <div style="display: flex; border-bottom: 0.5px solid #b9bec8;">
+              <div style="flex-grow: 1; text-align: center; padding: 2px;"><span class="cap">INSURER(S) AFFORDING COVERAGE</span></div>
+              <div style="width: 54px; text-align: center; padding: 2px; border-left: 0.5px solid #b9bec8;"><span class="cap">NAIC #</span></div>
+            </div>
+            <div style="display: flex; border-bottom: 0.5px solid #b9bec8;">
+              <div style="width: 44px; padding: 2px 4px;"><span class="cap">INSURER A :</span></div>
+              <div style="flex-grow: 1; padding: 2px 4px;"><span class="val">National General Insurance Company</span></div>
+              <div style="width: 54px; padding: 2px 4px; border-left: 0.5px solid #b9bec8;"><span class="val">23728</span></div>
+            </div>
+            <div style="display: flex; border-bottom: 0.5px solid #b9bec8;">
+              <div style="width: 44px; padding: 2px 4px;"><span class="cap">INSURER B :</span></div>
+              <div style="flex-grow: 1; padding: 2px 4px;"></div>
+              <div style="width: 54px; border-left: 0.5px solid #b9bec8;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- insured -->
+        <div style="display: flex; border-bottom: 0.5px solid #b9bec8; min-height: 46px;">
+          <div style="width: 246px; border-right: 0.5px solid #b9bec8; padding: 3px 5px;">
+            <div class="cap">INSURED</div>
+            <div class="val" style="margin-top: 5px; background: {{tint}}; display: inline-block; padding: 0 2px;">Smart Way Solutions Inc</div>
+            <div class="val">7059 Tallent Ct</div>
+            <div class="val">Sherrills Ford, NC 28673-9763</div>
+          </div>
+          <div style="flex-grow: 1; display: flex; flex-direction: column;">
+            <div style="flex-grow: 1; display: flex; border-bottom: 0.5px solid #b9bec8;"><div style="width: 44px; padding: 2px 4px;"><span class="cap">INSURER C :</span></div><div style="flex-grow: 1;"></div><div style="width: 54px; border-left: 0.5px solid #b9bec8;"></div></div>
+            <div style="flex-grow: 1; display: flex; border-bottom: 0.5px solid #b9bec8;"><div style="width: 44px; padding: 2px 4px;"><span class="cap">INSURER D :</span></div><div style="flex-grow: 1;"></div><div style="width: 54px; border-left: 0.5px solid #b9bec8;"></div></div>
+            <div style="flex-grow: 1; display: flex;"><div style="width: 44px; padding: 2px 4px;"><span class="cap">INSURER E :</span></div><div style="flex-grow: 1;"></div><div style="width: 54px; border-left: 0.5px solid #b9bec8;"></div></div>
+          </div>
+        </div>
+
+        <!-- coverages band -->
+        <div style="display: flex; align-items: center; border-bottom: 0.5px solid #b9bec8; padding: 3px 5px; gap: 40px;">
+          <span style="font-size: 6px; font-weight: 700;">COVERAGES</span>
+          <span style="font-size: 6px; font-weight: 700;">CERTIFICATE NUMBER:</span>
+          <span class="val">COI-2026-0018</span>
+          <div style="flex-grow: 1;"></div>
+          <span style="font-size: 6px; font-weight: 700;">REVISION NUMBER:</span>
+          <span class="val">0</span>
+        </div>
+
+        <div style="padding: 3px 5px; border-bottom: 0.5px solid #b9bec8; font-size: 4.2px; line-height: 1.5; color: #33415c;">
+          THIS IS TO CERTIFY THAT THE POLICIES OF INSURANCE LISTED BELOW HAVE BEEN ISSUED TO THE INSURED NAMED ABOVE FOR THE POLICY PERIOD INDICATED. NOTWITHSTANDING ANY REQUIREMENT, TERM OR CONDITION OF ANY CONTRACT OR OTHER DOCUMENT WITH RESPECT TO WHICH THIS CERTIFICATE MAY BE ISSUED OR MAY PERTAIN, THE INSURANCE AFFORDED BY THE POLICIES DESCRIBED HEREIN IS SUBJECT TO ALL THE TERMS, EXCLUSIONS AND CONDITIONS OF SUCH POLICIES.
+        </div>
+
+        <!-- coverage table header -->
+        <div style="display: grid; grid-template-columns: 20px 152px 26px 96px 46px 46px 1fr; border-bottom: 0.5px solid #b9bec8; text-align: center;">
+          <div class="bx cap">INSR<br>LTR</div>
+          <div class="bx cap" style="display: flex; align-items: center; justify-content: center;">TYPE OF INSURANCE</div>
+          <div class="bx cap">ADDL<br>INSD</div>
+          <div class="bx cap" style="display: flex; align-items: center; justify-content: center;">POLICY NUMBER</div>
+          <div class="bx cap">POLICY EFF<br>(MM/DD/YYYY)</div>
+          <div class="bx cap">POLICY EXP<br>(MM/DD/YYYY)</div>
+          <div class="bx cap" style="display: flex; align-items: center; justify-content: center; border-right: 0;">LIMITS</div>
+        </div>
+
+        <!-- rows -->
+        <div style="display: grid; grid-template-columns: 20px 152px 26px 96px 46px 46px 1fr; border-bottom: 0.5px solid #b9bec8; min-height: 40px;">
+          <div class="bx"></div>
+          <div class="bx cap" style="font-size: 4.6px;">COMMERCIAL GENERAL LIABILITY</div>
+          <div class="bx"></div><div class="bx"></div><div class="bx"></div><div class="bx"></div>
+          <div class="bx" style="border-right: 0;"><span class="cap" style="font-weight: 400;">EACH OCCURRENCE&nbsp;&nbsp;$</span></div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 20px 152px 26px 96px 46px 46px 1fr; border-bottom: 0.5px solid #b9bec8; min-height: 46px; background: {{tint}};">
+          <div class="bx val" style="text-align: center;">A</div>
+          <div class="bx cap" style="font-size: 4.6px;">AUTOMOBILE LIABILITY</div>
+          <div class="bx"></div>
+          <div class="bx val">2026256248</div>
+          <div class="bx val" style="font-size: 4.8px;">12/26/2025</div>
+          <div class="bx val" style="font-size: 4.8px;">12/26/2026</div>
+          <div class="bx" style="border-right: 0;"><span class="cap" style="font-weight: 400;">COMBINED SINGLE LIMIT&nbsp;&nbsp;$&nbsp;&nbsp;</span><span class="val">1,000,000</span></div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 20px 152px 26px 96px 46px 46px 1fr; border-bottom: 0.5px solid #b9bec8; min-height: 26px;">
+          <div class="bx"></div><div class="bx cap" style="font-size: 4.6px;">WORKERS COMPENSATION</div>
+          <div class="bx"></div><div class="bx"></div><div class="bx"></div><div class="bx"></div><div class="bx" style="border-right: 0;"></div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 20px 152px 26px 96px 46px 46px 1fr; border-bottom: 0.5px solid #b9bec8; min-height: 15px; background: {{tint}};">
+          <div class="bx val" style="text-align: center;">A</div>
+          <div class="bx val">Motor Truck Cargo</div>
+          <div class="bx"></div><div class="bx val">2026256248</div>
+          <div class="bx val" style="font-size: 4.8px;">12/26/2025</div>
+          <div class="bx val" style="font-size: 4.8px;">12/26/2026</div>
+          <div class="bx val" style="border-right: 0;">Limit: $100,000, Deductible: $2,500</div>
+        </div>
+        <div style="display: grid; grid-template-columns: 20px 152px 26px 96px 46px 46px 1fr; border-bottom: 0.5px solid #b9bec8; min-height: 15px; background: {{tint}};">
+          <div class="bx val" style="text-align: center;">A</div>
+          <div class="bx val">Physical Damage</div>
+          <div class="bx"></div><div class="bx val">2026256248</div>
+          <div class="bx val" style="font-size: 4.8px;">12/26/2025</div>
+          <div class="bx val" style="font-size: 4.8px;">12/26/2026</div>
+          <div class="bx val" style="border-right: 0;">Deductibles - Comp: $2,500, Coll: $2,500</div>
+        </div>
+
+        <!-- description of operations -->
+        <div style="border-bottom: 0.5px solid #b9bec8; padding: 3px 5px; min-height: 54px; background: {{tint}};">
+          <div class="cap" style="font-size: 4.2px;">DESCRIPTION OF OPERATIONS / LOCATIONS / VEHICLES  (ACORD 101, Additional Remarks Schedule, may be attached if more space is required)</div>
+          <div class="val" style="margin-top: 3px; font-size: 5px; line-height: 1.45;">
+            This Policy '2026256248' has Other Coverage 'Expanded Accident Towing' With Limit '$40,000'. Carrier: 'National General Insurance Company', Effective Date: '12/26/2025',<br>
+            Expiration Date: '12/26/2026'.<br>
+            Vehicles:<br>
+            2019 HINO Conventional Type Truck  VIN: 5PVNE8JV5K4S56954  ($18,250)  Comp: $2,500, Coll: $2,500<br>
+            See attached ACORD 101 Additional Remarks Schedule.
+          </div>
+        </div>
+
+        <!-- holder / cancellation -->
+        <div style="display: flex; flex-grow: 1;">
+          <div style="width: 246px; border-right: 0.5px solid #b9bec8; padding: 3px 5px;">
+            <div class="cap">CERTIFICATE HOLDER</div>
+            <div class="val" style="margin-top: 10px; background: {{tint}}; display: inline-block; padding: 0 2px;">Nordvale Logistics Group</div>
+            <div class="val">1180 Harbor Point Dr, Suite 220</div>
+            <div class="val">Stamford, CT 06902</div>
+          </div>
+          <div style="flex-grow: 1; display: flex; flex-direction: column; padding: 3px 5px;">
+            <div class="cap">CANCELLATION</div>
+            <div style="margin-top: 8px; font-size: 4.3px; font-weight: 700; line-height: 1.5; color: #33415c;">SHOULD ANY OF THE ABOVE DESCRIBED POLICIES BE CANCELLED BEFORE THE EXPIRATION DATE THEREOF, NOTICE WILL BE DELIVERED IN ACCORDANCE WITH THE POLICY PROVISIONS.</div>
+            <div style="flex-grow: 1;"></div>
+            <div class="cap" style="font-size: 4px;">AUTHORIZED REPRESENTATIVE</div>
+            <div style="font-size: 8px; font-style: italic; color: #141b2d; padding: 3px 0 0 24px;">Jessica Whittington Smith</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="height: 18px;"></div>
+    </div>
+
+    <!-- ───────── context rail ───────── -->
+    <div style="width: 296px; flex: none; border-left: 1px solid #e6e8ec; background: #ffffff; display: flex; flex-direction: column; overflow: hidden;">
+
+      <div style="padding: 18px 20px 14px; border-bottom: 1px solid #eef0f3;">
+        <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #64748b;">The request</div>
+        <div style="margin-top: 10px; font-size: 13px; font-weight: 500; color: #141b2d; line-height: 1.4;">Certificate of Insurance — Smart Way Solutions Inc</div>
+        <div style="margin-top: 6px; font-size: 12px; color: #64748b; line-height: 1.55;">
+          Priya Raman<br>
+          <span style="color: #8a94a6;">priya@nordvalelogistics.com</span><br>
+          <span style="color: #8a94a6;">Today, 9:58 AM</span>
+        </div>
+        <a href="#" style="display: inline-block; margin-top: 9px; font-size: 12.5px; font-weight: 500;">Read the email</a>
+      </div>
+
+      <!-- Why the holder reads the way it does. The one field on the form
+           that comes from the email rather than the agency's records. -->
+      <div style="padding: 16px 20px; border-bottom: 1px solid #eef0f3;">
+        <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #64748b;">Certificate holder</div>
+        <div style="margin-top: 9px; font-size: 12.5px; color: #33415c; line-height: 1.5;">Read from the sender's signature block, not from your client records.</div>
+      </div>
+
+      <div style="padding: 16px 20px; border-bottom: 1px solid #eef0f3;">
+        <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #64748b;">History</div>
+        <div style="display: flex; flex-direction: column; gap: 11px; margin-top: 11px;">
+          <div style="display: flex; gap: 9px;">
+            <span style="width: 5px; height: 5px; border-radius: 50%; background: #c3c9d4; margin-top: 5px; flex: none;"></span>
+            <div><div style="font-size: 12.5px; color: #33415c;">Draft assembled</div><div style="font-size: 11.5px; color: #8a94a6;">9:58 AM · automatic</div></div>
+          </div>
+          <div style="display: flex; gap: 9px;">
+            <span style="width: 5px; height: 5px; border-radius: 50%; background: #c3c9d4; margin-top: 5px; flex: none;"></span>
+            <div><div style="font-size: 12.5px; color: #33415c;">Insured matched</div><div style="font-size: 11.5px; color: #8a94a6;">9:58 AM · name, exact</div></div>
+          </div>
+          <div style="display: flex; gap: 9px;">
+            <span style="width: 5px; height: 5px; border-radius: 50%; background: #c3c9d4; margin-top: 5px; flex: none;"></span>
+            <div><div style="font-size: 12.5px; color: #33415c;">Request received</div><div style="font-size: 11.5px; color: #8a94a6;">9:58 AM</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="flex-grow: 1;"></div>
+
+      <!-- Send is a separate, explicit act, and the reviewer confirms the
+           address: a compliance inbox is often not the person who wrote in. -->
+      <div style="padding: 16px 20px 20px; border-top: 1px solid #eef0f3; background: #fafbfc;">
+        <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #64748b;">Send to</div>
+        <div style="margin-top: 9px; height: 34px; display: flex; align-items: center; padding: 0 10px; border: 1px solid #d7dbe2; border-radius: 7px; background: #ffffff; font-size: 12.5px; color: #141b2d;">priya@nordvalelogistics.com</div>
+        <div style="margin-top: 7px; font-size: 11.5px; color: #8a94a6; line-height: 1.5;">Replies in the original thread with the PDF attached.</div>
+        <button style="margin-top: 11px; width: 100%; height: 34px; border: 1px solid #d7dbe2; border-radius: 7px; background: #ffffff; color: #a8b0be; font-size: 12.5px; font-weight: 600; font-family: inherit; cursor: not-allowed;">Send certificate</button>
+        <div style="margin-top: 7px; font-size: 11.5px; color: #8a94a6;">Available once the certificate is issued.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#f26522","options":["#f26522","#2d6be4","#141b2d","#4b5a76"]},"tint":{"editor":"color","default":"#fff6f1","options":["#fff6f1","#f4f7fd","#f5f6f8","#ffffff"]},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      accent: this.props.accent ?? '#f26522',
+      // Marks the cells the assembler filled, so a reviewer sees at a glance
+      // what came from the database and what is the form's own printing.
+      tint: this.props.tint ?? '#fff6f1',
+    };
+  }
+}
+</script>
+</body>
+</html>

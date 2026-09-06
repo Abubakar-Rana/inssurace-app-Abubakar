@@ -1,0 +1,550 @@
+===============================================================================
+ CERTFLOW - DEVELOPMENT SUMMARY AND CURRENT SYSTEM FLOW
+===============================================================================
+
+ Version           [0.1 DRAFT]
+ Date              [DD MONTH YYYY]
+ Prepared by       [YOUR NAME], Nestnic Solutions
+
+ Purpose: to state honestly where the project started, what was built, in
+ what order and why, what the system does today end to end, what is proven
+ and how, and what remains.
+
+
+===============================================================================
+ PART 1 - WHERE THE PROJECT STARTED
+===============================================================================
+
+ The original build was a FRONT-END MOCKUP OF ONE STEP of a ten-step system.
+
+   What it had        A working ACORD 25 on-screen form, a coordinate-map
+                      rendering approach, and a sensible inbox-to-review
+                      workflow.
+
+   What it did not    No server. No database. No authentication. No email.
+                      No audit trail. State lived in the browser's local
+                      storage. Email and insured data were hard-coded fixture
+                      files.
+
+ The assessment made at the time was: KEEP IT, BUT BE CLEAR ABOUT WHAT IT IS.
+ Roughly forty per cent was directly reusable - specifically the coordinate
+ map concept, the map-driven form renderer, and the workflow design. The rest
+ had to be replaced.
+
+ That assessment held. The coordinate map and the overlay renderer survive in
+ the current system. Everything else was rebuilt.
+
+
+===============================================================================
+ PART 2 - WHAT WAS BUILT, IN ORDER
+===============================================================================
+
+ Each phase is listed with what problem it solved and what it cost.
+
+-------------------------------------------------------------------------------
+ PHASE 1  -  DATA FOUNDATION
+-------------------------------------------------------------------------------
+ Replaced browser storage with PostgreSQL. Fifteen tables. Row-level security
+ forced on fourteen of them. Envelope encryption implemented with per-agency
+ keys. TypeScript introduced for all backend code.
+
+ WHY FIRST: every other decision depends on where truth lives. Building
+ further on browser storage would have meant rewriting everything above it.
+
+-------------------------------------------------------------------------------
+ PHASE 2  -  DETERMINISTIC DOCUMENT ASSEMBLY
+-------------------------------------------------------------------------------
+ A pure assembly module: database records in, complete certificate out. No
+ input/output, so it is testable field by field without a running system.
+
+ VERIFIED AGAINST A REAL DOCUMENT. A certificate the agency had produced by
+ hand was used as the target, and generated output was compared field by
+ field. Seventeen of seventeen fields match, including which vehicle stays on
+ page one and which five move to the second page.
+
+ PROBLEM FOUND AND FIXED: text ran off the page edge because there was no word
+ wrapping. A shared, width-aware line-breaking module was built using real
+ font metrics. The side effect was that the page split then matched the sample
+ document exactly - which had not been true before.
+
+ SECOND PROBLEM FOUND AND FIXED: enforcing field heights silently truncated an
+ address line. The real box dimensions were measured from the blank form and
+ corrected.
+
+-------------------------------------------------------------------------------
+ PHASE 3  -  SERVER, API AND LIFECYCLE
+-------------------------------------------------------------------------------
+ API routes, and the dashboard moved onto the database. Browser storage
+ removed entirely.
+
+ Certificate lifecycle implemented: draft to issued, with hash-chained audit
+ entries, revisions instead of mutation, and deterministic document bytes so
+ the stored hash survives a reprint.
+
+ PROBLEM FOUND AND FIXED: reprints were not byte-identical, because the PDF
+ library stamped fresh timestamps on every generation. Document metadata is
+ now pinned. Without this the stored hash would have been meaningless.
+
+ PROBLEM FOUND AND FIXED: regenerating after approval minted a NEW certificate
+ number instead of a revision of the existing one. A holder who received
+ COI-2026-0001 and then a correction under a different number would reasonably
+ conclude the first was still in force.
+
+-------------------------------------------------------------------------------
+ PHASE 4  -  AUTHENTICATION AND ISOLATION
+-------------------------------------------------------------------------------
+ Signed session cookies, OpenID Connect sign-in, page gating, sign-out, and a
+ cross-origin check on all writes.
+
+ VERIFIED: unauthenticated requests refused; forged cookies refused;
+ cross-origin writes refused; a suspended account refused ON ITS EXISTING
+ SESSION rather than at next sign-in.
+
+-------------------------------------------------------------------------------
+ PHASE 5  -  BROWSER TESTING
+-------------------------------------------------------------------------------
+ An automated test driving real Chrome through the whole flow.
+
+ IT IMMEDIATELY FOUND THREE DEFECTS THAT API-LEVEL TESTING COULD NOT:
+   - an infinite redirect loop on the sign-in page that pinned the browser;
+   - a state layer that never re-fetched after client-side navigation, so the
+     inbox appeared empty after signing in;
+   - a cross-origin check pinned to a single configured address, which
+     rejected every legitimate write on any other host or port. Command-line
+     testing never caught it because command-line tools send no origin header.
+
+ This phase is called out because it justifies its own cost. Three real
+ defects, none of which were visible from the server side.
+
+-------------------------------------------------------------------------------
+ PHASE 6  -  INTERPRETATION
+-------------------------------------------------------------------------------
+ Entity resolution using database trigram similarity over legal names and
+ aliases, with suffix-aware normalisation. Email extraction of candidate
+ insured names. No machine learning.
+
+ DESIGNED TO ABSTAIN. A match requires both a strong score and a clear margin
+ over the runner-up.
+
+ A DECISION THAT WAS TRIED AND REVERSED, WORTH RECORDING: an early version
+ added a scoring bonus when one name contained another. Because "Smart Way
+ Solutions" is contained within "Smart Way Solutions of Ohio", the bonus
+ scored a DIFFERENT COMPANY at a perfect 1.00. The extra words in a longer
+ name are precisely what distinguish two related entities. The bonus was
+ removed and a permanent note left against it. This was caught by a
+ deliberately planted decoy in the test suite, not in production.
+
+-------------------------------------------------------------------------------
+ PHASE 7  -  REAL EMAIL
+-------------------------------------------------------------------------------
+ Mailbox ingestion over IMAP, read-only. Delivery as a threaded reply with the
+ PDF attached.
+
+ DESIGNED TO REFUSE BY DEFAULT: drafts, malformed addresses, reserved test
+ domains, and - outside production - any address not explicitly permitted.
+ This is what prevents a click on demonstration data from emailing a real
+ company.
+
+-------------------------------------------------------------------------------
+ PHASE 8  -  THE MAILBOX FILTER
+-------------------------------------------------------------------------------
+ A shared agency mailbox is mostly not certificate requests. Classification
+ was added BEFORE the database write, so non-requests are never stored at all.
+
+ MEASURED AGAINST A REAL MAILBOX: of forty messages read, three were
+ certificate requests and thirty-seven were not. None of the thirty-seven
+ entered the database.
+
+ Every skipped subject and the reason is reported on screen, because a false
+ negative loses a customer's request and must never be silent.
+
+-------------------------------------------------------------------------------
+ PHASE 9  -  AUTOMATIC DRAFTING
+-------------------------------------------------------------------------------
+ The "generate certificate" button was removed. The certificate is now
+ assembled the moment a request resolves to an insured.
+
+ REASONING: the reviewer's job is to CHECK a document, not to ask for one.
+ Pressing a button to make the system read records it has already read adds a
+ step and no judgement. Nothing about the control model changed - a draft is
+ still only a draft, and issuing and sending remain human acts.
+
+-------------------------------------------------------------------------------
+ PHASE 10  -  CERTIFICATE HOLDER FROM THE EMAIL
+-------------------------------------------------------------------------------
+ A defect was identified in the design: the certificate holder was being read
+ from a stored table, which meant EVERY certificate was addressed to whichever
+ holder happened to be on file, regardless of who had actually written in.
+
+ The holder is now read from the requester's signature block. It is the only
+ certificate field sourced from the email, and necessarily so - the holder is
+ whoever asked, and the agency has no record of them until they do.
+
+ The safety property is that this reader looks only BELOW the sign-off, while
+ insured extraction looks only ABOVE it. A name in a signature can therefore
+ become an addressee but never the insured whose coverage the document
+ asserts. This separation is explicitly tested.
+
+-------------------------------------------------------------------------------
+ PHASE 11  -  AUTOMATIC MONITORING  (superseded by Phase 13)
+-------------------------------------------------------------------------------
+ The dashboard began checking the mailbox on a browser timer, which took
+ end-to-end latency from "whenever someone clicks" down to about 21 seconds.
+ The manual refresh control was removed.
+
+ Superseded: the browser no longer polls at all. See Phase 13.
+
+
+-------------------------------------------------------------------------------
+ PHASE 12  -  VEHICLE IDENTIFICATION NUMBERS WITHHELD BY DEFAULT
+-------------------------------------------------------------------------------
+ A certificate goes to a third party the insured did not choose, and a full
+ vehicle schedule with VINs is an inventory of that insured's rolling stock.
+ Most requests need limits and dates. VINs are now printed only when the
+ request asks for them.
+
+ THE HARD PART WAS THE INVERSIONS. "No VINs needed" contains the very word
+ being looked for, and reading it as a request for them would be the exact
+ opposite of what was asked. Declines are checked before requests, and every
+ inversion is tested explicitly.
+
+ A useful side effect: withholding VINs shortens each line, so a fleet that
+ would have needed a second page may now fit on one. That falls out of how the
+ page split is measured; nothing downstream had to change.
+
+-------------------------------------------------------------------------------
+ PHASE 13  -  CONTINUOUS MONITORING, PUSHED TO THE SCREEN
+-------------------------------------------------------------------------------
+ The "check for new email" button and the browser timer are both gone. A
+ watcher process holds one connection to the mailbox open; the mail server
+ announces new mail on it, and the same connection is re-checked every couple
+ of seconds as a guarantee. Changes are pushed to the browser. Nothing reloads.
+
+ WHY NOT SIMPLY POLL EVERY FEW SECONDS: reconnecting to the mailbox that often
+ would mean around seventeen thousand logins a day to be told, nearly every
+ time, that nothing changed. Holding one connection open makes the check
+ essentially free.
+
+ THREE PROBLEMS FOUND ON THE WAY, ALL OF WHICH WOULD HAVE BEEN SILENT:
+
+   - AN OPEN MAILBOX IS A SNAPSHOT. Asking an already-open connection what is
+     new kept returning the view it had when it opened. The standard remedy is
+     to issue a no-op command first, which makes the server report what it has
+     been holding. Without it, new mail was simply never seen.
+
+   - A LIST PASSED INTO A HAND-WRITTEN QUERY was sent as text and rejected by
+     the database. Replaced with the query builder's own operator.
+
+   - NOTIFICATIONS DID NOT CROSS PROCESSES. Once the watcher became its own
+     process, an in-memory notification reached only browsers attached to the
+     process that noticed the mail - which, with a separate watcher, is none of
+     them. Moved onto PostgreSQL, which both processes already share.
+
+ MEASURED: 7-8 seconds from a message landing in the mailbox to appearing on
+ the dashboard, of which about 4 seconds is the ingest itself. Database round
+ trips are ~63ms and were confirmed NOT to be the bottleneck.
+
+ The dashboard also gained an unread count and an indicator showing whether the
+ live feed is actually connected - because a broken feed otherwise looks
+ identical to a quiet mailbox.
+
+-------------------------------------------------------------------------------
+ PHASE 14  -  ASKING THE REQUESTER WHEN TWO CLIENTS ARE TOO ALIKE
+-------------------------------------------------------------------------------
+ An agency can easily carry "Smart Way Solutions Inc" and "Smart Way Solutions
+ LLC" - different companies, different policies. A request naming "Smartway
+ Solutions" fits both equally, and matching correctly refuses.
+
+ That refusal used to go to a reviewer, who has to guess on exactly the same
+ information the machine had. The agency's own records do not say which of its
+ clients a stranger meant. The requester does know.
+
+ The system now replies in the original thread asking which company, and offers
+ the reliable way to answer: a USDOT or MC number. Those are issued by the
+ federal government to one motor carrier each, so the answer resolves the
+ request precisely instead of by similarity. There is no fuzzy matching on an
+ identifier - transposed digits name an unrelated carrier, so it matches
+ exactly or not at all.
+
+ THIS IS THE ONLY MESSAGE THE SYSTEM SENDS WITHOUT A PERSON. It carries no
+ coverage, no limits and no document. It can be switched off.
+
+ THE SEED HAD TO CHANGE FOR ANY OF THIS TO BE DEMONSTRABLE. With one client on
+ the books the resolver looked infallible, because there was nothing to confuse
+ it with. A second, near-identically named company was added, with its own
+ policies, its own fleet and its own federal numbers.
+
+ A BUG THE TESTS CAUGHT: a request resolved by a requester's answer was left
+ with no certificate drafted. They would have answered our question and then
+ still waited for someone to notice. Drafting now follows the answer, exactly
+ as it follows an unambiguous match.
+
+
+===============================================================================
+ PART 3 - THE CURRENT FLOW, END TO END
+===============================================================================
+
+ The following is what happens today, with nothing simulated.
+
+  T+0s     A broker emails the agency mailbox asking for a certificate for
+           one of the agency's insureds.
+
+  T+~5s    The watcher process, which holds one connection to the mailbox
+           open, is told by the mail server that something arrived.
+
+           CLASSIFY      The message is assessed. Non-requests are discarded
+                         at this point and never stored; their subjects are
+                         reported on screen with the reason.
+
+           STORE         The request is written. A duplicate message would be
+                         rejected by a database constraint.
+
+           HOLDER        The signature block below the sign-off is read to
+                         determine who the certificate is addressed to.
+
+           INSURED       The body above the sign-off is searched for a company
+                         name in a construction that states who the
+                         certificate is FOR.
+
+           RESOLVE       That name is matched against the client list.
+                         - Confident match: proceed.
+                         - TWO CLIENTS FIT EQUALLY: the system replies to the
+                           requester asking which, offering a USDOT or MC
+                           number as the reliable answer, and waits. When the
+                           reply arrives it is matched back to this request and
+                           the flow rejoins below - certificate included.
+                         - Anything else, or an unusable reply: marked as
+                           needing a human, with what was read, why it stopped,
+                           the email itself, and a searchable insured list.
+
+           ASSEMBLE      Producer, insured, holder, active policies and the
+                         vehicle schedule are read FROM THE DATABASE. Vehicle
+                         identification numbers are included only if the
+                         request asked for them. Coverage
+                         rows are ordered to the ACORD grid. Page-one capacity
+                         is computed from wrapped line counts; the remainder
+                         goes to an ACORD 101.
+
+           DRAFT         A certificate number is allocated under a lock, the
+                         snapshot is stored, and an audit entry is written in
+                         the same transaction.
+
+  T+~12s   THE REQUEST APPEARS ON THE DASHBOARD, pushed to the open browser.
+           Nothing reloaded and nobody clicked anything. The certificate
+           follows a moment later.
+
+           Roughly 5-7s of that is the sender mail provider delivery time,
+           which is outside this system; 7-8s is detection and ingestion.
+
+  --- everything below requires a person ---
+
+           REVIEW        The reviewer opens both ACORD pages, rendered over
+                         the real form artwork, every field editable.
+
+           APPROVE       The document becomes issued. The snapshot is frozen.
+                         The PDF hash is recorded. NOTHING HAS BEEN SENT.
+
+           SEND          The reviewer confirms the recipient - pre-filled from
+                         the request, editable, because a compliance inbox is
+                         often not the person who wrote in.
+
+                         The PDF is re-rendered from the stored snapshot and
+                         its hash checked against the one recorded at
+                         approval. A mismatch aborts.
+
+                         The reply is sent IN THE ORIGINAL THREAD with the PDF
+                         attached. Only after transmission succeeds is the
+                         delivery recorded and the request marked sent.
+
+ CORRECTIONS
+   An issued certificate is never edited. A correction produces a NEW REVISION
+   of the SAME certificate number, so the holder sees the number they already
+   have. Reprints re-render the stored snapshot, never live policy data.
+
+
+===============================================================================
+ PART 4 - WHAT IS PROVEN, AND HOW
+===============================================================================
+
+ The following runs on demand and is a delivered asset.
+
+   Suite                    Checks   What it establishes
+   ---------------------------------------------------------------------------
+   Assembly                    17    Generated output matches a certificate
+                                     the agency produced by hand, field by
+                                     field, including the page split and
+                                     vehicle order
+   Lifecycle (API)             17    Draft, revision, audit chain and access
+                                     control against a live database with
+                                     security policies active
+   Browser                     45    The full flow in real Chrome: sign in,
+                                     review, edit, approve, sign out
+   Clarification               30    Reading federal identifiers and replies,
+                                     and the lookup that settles an ambiguity
+   Entity resolution           24    Correct matches AND correct refusals
+   VIN disclosure              23    Withheld unless asked, including the
+                                     inversions ("no VINs needed")
+   Interpretation              19    Email to insured across a known inbox
+   Extraction                  17    Email parsing. No database, no network
+   Delivery guardrails         16    Every case that must be refused
+   Mailbox filter              16    What reaches the dashboard and what does
+                                     not
+   Holder resolution           12    Holder read from the signature, and that
+                                     neither reader can see the other's region
+   ---------------------------------------------------------------------------
+   TOTAL                      236
+
+   Plus THREE opt-in live tests that send genuine email: a request appearing on
+   the dashboard unattended, the full clarification exchange, and certificate
+   delivery. They require an explicit flag to run, because each one leaves a
+   permanent message in a real mailbox.
+
+ A NOTE ON WHAT THESE ASSERT
+   A substantial proportion assert REFUSAL - that the system declines to act
+   when it should not. For software that produces documents asserting
+   insurance coverage, the cases where it must not proceed matter as much as
+   the cases where it must.
+
+ ALSO ESTABLISHED
+   - Type checking passes with no errors.
+   - Production build completes with no errors.
+   - The full demonstration artefact regenerates from a single command,
+     producing a two-page document matching the source sample.
+
+
+===============================================================================
+ PART 5 - CURRENT LIMITATIONS
+===============================================================================
+
+ Stated plainly and without qualification.
+
+ L1  NO AGENCY MANAGEMENT SYSTEM INTEGRATION.
+     Policy, vehicle and client data lives in CertFlow's own database. There
+     is no live connection to AMS360, Applied Epic or any equivalent. This is
+     the single largest outstanding item, it determines the project timeline,
+     and it cannot be resolved without a client decision.
+
+ L2  MAILBOX AUTHENTICATION IS AN APP PASSWORD.
+     Suitable for a mailbox we control. Not suitable for a customer's mailbox,
+     because it grants full account access and cannot be scoped or revoked per
+     integration. Replacement with scoped OAuth is confined to one module.
+
+ L3  ENCRYPTION IS BUILT BUT NOT APPLIED.
+     Envelope encryption with per-agency keys is implemented and tested. No
+     column currently passes through it.
+
+ L4  THE DATA PURGE IS MANUAL.
+     Purge dates are recorded correctly against every stored email. Nothing
+     executes them on a schedule.
+
+ L5  NO RATE LIMITING.
+     No request throttling exists on any route.
+
+ L6  NO AUDIT VIEWER.
+     The audit data is complete, immutable and queryable. It has no screen.
+
+ L7  THE WATCHER IS A SECOND PROCESS THAT MUST BE KEPT RUNNING.
+     Mail is ingested whether or not anyone has the dashboard open, but only
+     while that process is alive. It reconnects on its own after a dropped
+     connection; it does not survive a host restart without supervision.
+
+ L8  NO ATTACHMENT OR IMAGE READING.
+     A request naming the insured only inside a PDF or scanned image is not
+     interpreted. It reaches the dashboard for a human, which is the correct
+     outcome, but it is not automatic.
+
+ L9  ENGLISH ONLY.
+
+ L10 GOOGLE WORKSPACE ONLY. Microsoft 365 mailboxes are not supported in this
+     phase.
+
+ L11 SINGLE TENANT EXERCISED.
+     The architecture is multi-tenant and enforced at the database level, but
+     only one agency has been run against it.
+
+ L12 DEMONSTRATION DATA IS TWO INSUREDS.
+     Deliberately near-identical, so the ambiguity path is demonstrable.
+     Matching accuracy against a realistic client list of hundreds of similar
+     company names has still not been measured and CANNOT BE ESTIMATED until
+     real data is available.
+
+ L13 DETECTION IS 7-8 SECONDS, NOT SUB-SECOND.
+     About 4 seconds of that is the ingest itself. Database round trips were
+     measured at ~63ms and are not the bottleneck.
+
+ L14 THE INTERPRETATIONS TABLE IS UNUSED.
+     Designed to retain machine-learning output for audit and replay. The
+     current pipeline is deterministic, so nothing writes to it.
+
+ L15 NO CODE LINTING CONFIGURED.
+     Type checking runs and passes. A linter has never been set up.
+
+
+===============================================================================
+ PART 6 - REMAINING WORK
+===============================================================================
+
+ In dependency order.
+
+ BLOCKED ON A CLIENT DECISION
+   1.  Policy data source: live integration, scheduled import, or maintained
+       in CertFlow. Blocks estimation of everything below it.
+
+ BLOCKED ON THIRD PARTIES
+   2.  ACORD forms licence.
+   3.  Google Cloud project, consent screen, and mail scope approval.
+   4.  Identity provider registration in the client's tenant.
+
+ SUPPLIER WORK, ESTIMABLE NOW
+   5.  Scoped OAuth mailbox authorisation, replacing the App Password.
+   6.  Rate limiting on all routes.
+   7.  Scheduled purge job reading the recorded purge dates.
+   8.  Audit log viewing interface.
+   9.  Activation of field-level encryption on the columns it is designed for.
+  10.  Subprocessor and vendor documentation.
+  11.  Production deployment: environments, secrets, backups, monitoring.
+  12.  Operator and administrator documentation.
+
+ SUPPLIER WORK, ESTIMABLE ONLY AFTER ITEM 1
+  13.  The integration itself.
+  14.  Calibration of extraction rules against the client's real request
+       phrasing.
+  15.  Matching accuracy measurement against the client's real client list.
+
+
+===============================================================================
+ PART 7 - AN HONEST SUMMARY
+===============================================================================
+
+ WHAT IS TRUE TODAY
+   Every step from an email arriving to a certificate being delivered is real
+   and works: ingestion, filtering, interpretation, matching, holder
+   resolution, assembly, rendering, approval and threaded delivery. Roughly
+   236 automated checks establish this, including 45 in a real browser and
+   three that send genuine email and watch the result land unattended.
+
+ WHAT IS NOT YET TRUE
+   The system is not connected to an agency's real book of business. It reads
+   policy data from its own database, and populating that database from the
+   agency's system of record is unbuilt work that depends on a decision only
+   the client can make.
+
+   Several production concerns - rate limiting, scheduled purging, an audit
+   interface, and activating the encryption that is already written - are
+   understood, scoped and unbuilt.
+
+ WHAT THIS MEANS FOR A CLIENT CONVERSATION
+   The hard and unusual parts are done. Pixel-accurate ACORD generation
+   verified against a real document, deterministic output, an immutable audit
+   trail, database-enforced tenant isolation, and an interpretation layer that
+   knows when to refuse are the parts that are genuinely difficult and easy to
+   get wrong.
+
+   What remains is mostly integration and operational hardening: well
+   understood, but not free, and largely gated on third parties and on client
+   decisions rather than on engineering.
+
+
+===============================================================================
+ END OF DOCUMENT
+===============================================================================

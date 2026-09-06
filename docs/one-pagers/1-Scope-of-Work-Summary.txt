@@ -1,0 +1,63 @@
+===============================================================================
+ CERTFLOW - SCOPE OF WORK AT A GLANCE
+ Client [CLIENT NAME]  |  Owner [YOUR NAME]  |  Date [DD MMM YYYY]
+===============================================================================
+
+ WHAT WE ARE BUILDING
+ A system that answers insurance certificate requests automatically. A broker
+ emails asking for proof that a trucking company is insured. The system works
+ out who the request is about, fills in the standard industry form from the
+ agency's own records, and puts a finished document in front of a member of
+ staff. That person checks it and clicks send.
+
+ Staff are deliberately kept in the loop. The system prepares documents. It
+ never issues or sends one on its own.
+
+ WHY IT MATTERS
+ Today this is done by hand: read the email, look the company up, retype
+ policy numbers, coverage limits, dates and vehicle details onto a form. It
+ is slow, and a typing error on an insurance certificate is a liability for
+ the agency, not just an inconvenience.
+
+ WHAT ALREADY WORKS
+   - Reads the agency mailbox and ignores anything that is not a request
+   - Works out which insured company the request is about
+   - Emails the requester when two clients are named too alike to tell apart
+   - Fills the form from the agency's records - nothing is retyped
+   - Leaves vehicle ID numbers off unless the request asks for them
+   - Handles large vehicle fleets that spill onto a second page
+   - Puts new requests on screen by itself, within seconds, without a reload
+   - Lets staff review, edit, approve and email the certificate back
+   - Keeps a permanent record of who did what, which cannot be altered
+
+ WHAT IS STILL TO DO
+   - Connect to the agency's main system so policy data flows in (see below)
+   - Switch the mailbox connection to a safer, revocable method
+   - Add usage limits, automatic clean-up of old emails, and a records screen
+   - Deploy it properly, test it with the client, train the staff
+
+ THE ONE THING THAT BLOCKS EVERYTHING
+ The system prints policy details from a database. Right now that database is
+ ours, and it must be filled from the agency's real system. Until the client
+ decides HOW - a live connection, a regular file transfer, or keeping it by
+ hand - we cannot put dates against any later stage of the project.
+
+ WHAT WE NEED FROM THE CLIENT
+   - A licence to reproduce the industry forms (slow - start now)
+   - A decision on where policy data comes from
+   - A dedicated email address for certificate requests
+   - Permission to connect to their email and their staff sign-in
+   - Named people who will check and send certificates
+
+ NOT INCLUDED
+ Other insurance forms. Other lines of business. Quoting, billing or claims.
+ Moving old certificates into the system. A phone app.
+
+ BIGGEST RISKS
+   1. The forms licence is slow and outside anyone's control
+   2. The client's main system may not offer a way to connect to it
+   3. If nobody is assigned to check certificates, nothing gets sent
+
+===============================================================================
+ Full detail: docs/01-Scope-of-Work.txt
+===============================================================================

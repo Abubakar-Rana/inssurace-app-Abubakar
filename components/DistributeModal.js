@@ -1,5 +1,16 @@
 "use client";
 
+// ============================================================================
+// PARKED — not currently rendered.
+//
+// This is the send-to-holder UI. It was unwired when the review page moved to
+// the real API, because delivery does not exist yet: approval issues the
+// certificate, and emailing it needs the Gmail integration. Reinstate this on
+// the delivery phase rather than rewriting it — the flow it describes (choose
+// recipient, confirm, then send) is the one we want, and a human still has to
+// press the button.
+// ============================================================================
+
 import { useState } from "react";
 import { Icon } from "./icons";
 import { downloadCertificatePdf, certFileName } from "@/lib/acordPdf";

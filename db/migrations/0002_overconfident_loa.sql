@@ -1,0 +1,1 @@
+ALTER TABLE "policies" ADD COLUMN "operations_note" text;

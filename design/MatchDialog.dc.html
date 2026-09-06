@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #33415c; text-decoration: none; } a:hover { color: #141b2d; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; position: relative; background: #ffffff; overflow: hidden;">
+
+  <!-- the queue, dimmed behind -->
+  <div style="position: absolute; inset: 0; display: flex; flex-direction: column; padding: 74px 24px 0; gap: 0; opacity: 0.5;">
+    <div style="height: 20px; width: 160px; background: #eef0f3; border-radius: 4px; margin-bottom: 22px;"></div>
+    <div style="height: 62px; border-top: 1px solid #e6e8ec; border-bottom: 1px solid #eef0f3; display: flex; align-items: center; gap: 16px;">
+      <span style="width: 7px; height: 7px; border-radius: 50%; background: #e0e3e8;"></span>
+      <span style="width: 150px; height: 11px; background: #eef0f3; border-radius: 3px;"></span>
+      <span style="width: 360px; height: 11px; background: #eef0f3; border-radius: 3px;"></span>
+    </div>
+    <div style="height: 62px; border-bottom: 1px solid #eef0f3; display: flex; align-items: center; gap: 16px;">
+      <span style="width: 7px; height: 7px; border-radius: 50%; background: #e0e3e8;"></span>
+      <span style="width: 130px; height: 11px; background: #f2f4f7; border-radius: 3px;"></span>
+      <span style="width: 300px; height: 11px; background: #f2f4f7; border-radius: 3px;"></span>
+    </div>
+    <div style="height: 62px; border-bottom: 1px solid #eef0f3; display: flex; align-items: center; gap: 16px;">
+      <span style="width: 7px; height: 7px; border-radius: 50%; background: #f2f4f7;"></span>
+      <span style="width: 140px; height: 11px; background: #f5f6f8; border-radius: 3px;"></span>
+      <span style="width: 330px; height: 11px; background: #f5f6f8; border-radius: 3px;"></span>
+    </div>
+  </div>
+
+  <div style="position: absolute; inset: 0; background: rgba(20,27,45,0.34);"></div>
+
+  <!-- ───────── dialog ───────── -->
+  <div style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 640px; background: #ffffff; border-radius: 14px; box-shadow: 0 24px 60px -12px rgba(20,27,45,0.42); overflow: hidden; display: flex; flex-direction: column;">
+
+    <div style="padding: 24px 26px 0;">
+      <h2 style="margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.015em; color: #141b2d;">Which company is this certificate for?</h2>
+      <p style="margin: 8px 0 0; font-size: 13.5px; line-height: 1.55; color: #4b5a76;">
+        Two of your clients fit the name in this email. They hold different policies, so choosing the wrong one would put the wrong coverage on the document.
+      </p>
+    </div>
+
+    <!-- what was actually read -->
+    <div style="margin: 20px 26px 0; padding: 13px 15px; background: #f7f8fa; border-radius: 9px;">
+      <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #64748b;">What the email said</div>
+      <div style="margin-top: 8px; font-size: 13.5px; color: #141b2d; line-height: 1.5;">
+        “…please issue a certificate of insurance for <span style="background: {{mark}}; padding: 1px 3px; border-radius: 3px; font-weight: 600;">Smartway Solutions</span> as soon as you can…”
+      </div>
+      <div style="margin-top: 8px; font-size: 11.5px; color: #8a94a6;">From the body, above the sign-off · Dana Whitfield, 8:11 AM</div>
+    </div>
+
+    <!-- candidates -->
+    <div style="padding: 20px 26px 0;">
+      <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #64748b;">Your clients that fit</div>
+
+      <div style="display: flex; flex-direction: column; gap: 9px; margin-top: 11px;">
+
+        <div style="display: flex; align-items: flex-start; gap: 13px; padding: 14px 15px; border: 1.5px solid {{accent}}; border-radius: 10px; cursor: pointer;">
+          <span style="width: 15px; height: 15px; border-radius: 50%; border: 4.5px solid {{accent}}; background: #ffffff; margin-top: 2px; flex: none;"></span>
+          <div style="flex-grow: 1; min-width: 0;">
+            <div style="display: flex; align-items: baseline; gap: 8px;">
+              <span style="font-size: 14px; font-weight: 600; color: #141b2d;">Smart Way Solutions <span style="background: {{mark}}; padding: 0 3px; border-radius: 3px;">Inc</span></span>
+              <span style="font-size: 12px; color: #8a94a6;">#10041</span>
+            </div>
+            <div style="margin-top: 5px; font-size: 12.5px; color: #64748b;">7059 Tallent Ct, Sherrills Ford, NC 28673</div>
+            <div style="display: flex; gap: 18px; margin-top: 8px;">
+              <span style="font-size: 12px; color: #4b5a76;">USDOT <span style="font-weight: 600; color: #141b2d;">3121884</span></span>
+              <span style="font-size: 12px; color: #4b5a76;">MC <span style="font-weight: 600; color: #141b2d;">1084463</span></span>
+              <span style="font-size: 12px; color: #8a94a6;">3 policies · 6 vehicles</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: flex-start; gap: 13px; padding: 14px 15px; border: 1px solid #e0e3e8; border-radius: 10px; cursor: pointer;">
+          <span style="width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid #c3c9d4; background: #ffffff; margin-top: 2px; flex: none;"></span>
+          <div style="flex-grow: 1; min-width: 0;">
+            <div style="display: flex; align-items: baseline; gap: 8px;">
+              <span style="font-size: 14px; font-weight: 600; color: #141b2d;">Smart Way Solutions <span style="background: {{mark}}; padding: 0 3px; border-radius: 3px;">LLC</span></span>
+              <span style="font-size: 12px; color: #8a94a6;">#10052</span>
+            </div>
+            <div style="margin-top: 5px; font-size: 12.5px; color: #64748b;">412 Denver Ave, Charlotte, NC 28206</div>
+            <div style="display: flex; gap: 18px; margin-top: 8px;">
+              <span style="font-size: 12px; color: #4b5a76;">USDOT <span style="font-weight: 600; color: #141b2d;">2988014</span></span>
+              <span style="font-size: 12px; color: #4b5a76;">MC <span style="font-weight: 600; color: #141b2d;">1043790</span></span>
+              <span style="font-size: 12px; color: #8a94a6;">2 policies · 2 vehicles</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- the alternative to deciding -->
+    <div style="margin: 18px 26px 0; padding-top: 16px; border-top: 1px solid #eef0f3; display: flex; align-items: flex-start; gap: 11px;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a94a6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 1px; flex: none;">
+        <path d="M4 6h16v12H4z" /><path d="M4 7l8 6 8-6" />
+      </svg>
+      <div style="flex-grow: 1;">
+        <div style="font-size: 13px; color: #33415c; line-height: 1.5;">Or ask Dana which one she means — she has the carrier's paperwork in front of her.</div>
+        <div style="margin-top: 3px; font-size: 11.5px; color: #8a94a6;">Sends one short question in the same thread. No coverage, limits or document.</div>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 9px; padding: 20px 26px 22px;">
+      <button style="height: 34px; padding: 0 14px; border: 1px solid #d7dbe2; border-radius: 7px; background: #ffffff; color: #33415c; font-size: 13px; font-weight: 500; font-family: inherit; cursor: pointer;">Ask the requester</button>
+      <div style="flex-grow: 1;"></div>
+      <button style="height: 34px; padding: 0 14px; border: 0; border-radius: 7px; background: transparent; color: #64748b; font-size: 13px; font-weight: 500; font-family: inherit; cursor: pointer;">Cancel</button>
+      <button style="height: 34px; padding: 0 17px; border: 0; border-radius: 7px; background: {{accent}}; color: #ffffff; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer;">Use Smart Way Solutions Inc</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#f26522","options":["#f26522","#2d6be4","#141b2d","#4b5a76"]},"mark":{"editor":"color","default":"#ffe6d9","options":["#ffe6d9","#dfe8fb","#eef0f3"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      accent: this.props.accent ?? '#f26522',
+      // Highlights the words that actually separate the two companies.
+      mark: this.props.mark ?? '#ffe6d9',
+    };
+  }
+}
+</script>
+</body>
+</html>

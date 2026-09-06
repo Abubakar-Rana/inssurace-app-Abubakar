@@ -1,0 +1,34 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 900, "title": "Inbox — needs you (busy day)" },
+    { "file": "InboxArchive.dc.html", "x": 1560, "y": 0, "w": 1440, "h": 900, "title": "Inbox — done (190 requests)" },
+    { "file": "CertificateReview.dc.html", "x": 0, "y": 1020, "w": 1440, "h": 1000, "title": "Certificate review" },
+    { "file": "MatchDialog.dc.html", "x": 1560, "y": 1020, "w": 1440, "h": 900, "title": "Match dialog — the system declines to guess" },
+    { "file": "QuietState.dc.html", "x": 0, "y": 2140, "w": 1440, "h": 720, "title": "Nothing waiting" },
+    { "file": "Foundations.dc.html", "x": 1560, "y": 2140, "w": 1100, "h": 1440, "title": "Foundations" }
+  ],
+  "annotations": [
+    {
+      "id": "direction",
+      "x": 0,
+      "y": -170,
+      "w": 620,
+      "text": "Direction: ink ramp + one orange.\nSeven status colours became none — state is carried by grouping, weight for unread, and plain words. Orange marks only an action you can take, or unread."
+    },
+    {
+      "id": "scale",
+      "x": 1560,
+      "y": -170,
+      "w": 620,
+      "text": "Scale: 212 requests, 190 of them done.\nThe tab bar holds the counts so the three questions still answer at a glance; group headings stick while the list scrolls; finished work drops to one 44px line and pages explicitly rather than scrolling forever."
+    },
+    {
+      "id": "foundations-note",
+      "x": 2740,
+      "y": 2140,
+      "w": 460,
+      "text": "These extend tailwind.config.js rather than replacing it — the ink ramp and #f26522 are already there. What changes is how little orange gets used, and that rows stop being cards."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

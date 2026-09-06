@@ -4,10 +4,20 @@
 // with editable fields positioned at exact PDF coordinates. This guarantees the
 // on-screen document is 100% identical to COI TRUCK SOLUTION.PDF.
 
-import { PAGE, TEXT, CHECKS, isChecked } from "@/lib/acordMap";
+import { PAGE, TEXT, CHECKS, isChecked, DATA } from "@/lib/acordMap";
+import { TEXT as TEXT_101 } from "@/lib/acord101Map";
 import { getPath, setPath } from "@/lib/path";
 
-const INK = "#10233f";
+/**
+ * The two form pages this component can draw. Which map is in play decides the
+ * fields AND the background, so they can never be mismatched.
+ */
+const SHEETS = {
+  acord25: { text: TEXT, checks: CHECKS, background: "/acord25-blank.png", insurers: true },
+  acord101: { text: TEXT_101, checks: [], background: "/acord101-blank.png", insurers: false },
+};
+
+const INK = "#000000"; // matches the black the real form prints data in
 // Fine vertical nudge (points) so HTML text baselines sit on the form lines.
 const TWEAK_Y = -1.2;
 
@@ -16,7 +26,8 @@ const INSURER_ROWS = ["A", "B", "C", "D", "E", "F"].map((letter, i) => ({
   y: 184 + i * 12,
 }));
 
-export default function AcordOverlay({ cert, editing, onChange, width = 900 }) {
+export default function AcordOverlay({ cert, editing, onChange, width = 900, sheet = "acord25" }) {
+  const { text: FIELDS, checks: BOXES, background, insurers: showInsurers } = SHEETS[sheet];
   const S = width / PAGE.w;
   const height = width * (PAGE.h / PAGE.w);
 
@@ -66,13 +77,17 @@ export default function AcordOverlay({ cert, editing, onChange, width = 900 }) {
   return (
     <div
       className="relative select-none"
-      style={{ width, height, backgroundImage: "url(/acord25-blank.png)", backgroundSize: "100% 100%" }}
+      style={{ width, height, backgroundImage: `url(${background})`, backgroundSize: "100% 100%" }}
     >
       {/* Scalar text fields */}
-      {TEXT.map((f, i) => {
+      {FIELDS.map((f, i) => {
         const value = getPath(cert, f.path) ?? "";
         const style = { ...textStyle(f), ...(editing ? editRing : null) };
         const common = {
+          // The field's map path, so anything outside this component can
+          // address a specific box — a browser test asserting what landed in
+          // the holder block should not have to guess by input order.
+          "data-field": f.path.join("."),
           value,
           readOnly: !editing,
           onChange: (e) => onChange(setPath(cert, f.path, e.target.value)),
@@ -86,17 +101,17 @@ export default function AcordOverlay({ cert, editing, onChange, width = 900 }) {
         );
       })}
 
-      {/* Insurer rows A–F */}
-      {INSURER_ROWS.map(({ letter, y }) => {
+      {/* Insurer rows A–F (ACORD 25 only) */}
+      {showInsurers && INSURER_ROWS.map(({ letter, y }) => {
         const rec = insurerByLetter[letter] || {};
         const base = {
           position: "absolute",
           top: (y + TWEAK_Y) * S,
-          height: 10 * 1.32 * S,
-          fontSize: 10 * S,
-          lineHeight: `${10 * 1.32 * S}px`,
+          height: DATA * 1.32 * S,
+          fontSize: DATA * S,
+          lineHeight: `${DATA * 1.32 * S}px`,
           fontFamily: "Arial, Helvetica, sans-serif",
-          fontWeight: 700,
+          fontWeight: 400,
           color: INK,
           background: "transparent",
           border: "none",
@@ -126,7 +141,7 @@ export default function AcordOverlay({ cert, editing, onChange, width = 900 }) {
       })}
 
       {/* Checkboxes (X marks) */}
-      {CHECKS.map((chk, i) => {
+      {BOXES.map((chk, i) => {
         const value = getPath(cert, chk.path);
         const gateOk = !chk.gate || !!getPath(cert, chk.gate);
         const on = isChecked(value, chk) && gateOk;

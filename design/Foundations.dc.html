@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #33415c; } a:hover { color: #141b2d; }
+    .h { font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: #64748b; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; color: #64748b; }
+    .sw { height: 46px; border-radius: 7px; display: flex; align-items: flex-end; padding: 6px 8px; }
+    .rule { font-size: 13px; color: #33415c; line-height: 1.6; }
+  </style>
+</helmet>
+
+<div style="width: 1100px; height: 1440px; background: #ffffff; color: #141b2d; padding: 32px 36px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px;">
+
+  <div>
+    <h1 style="margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.015em;">Foundations</h1>
+    <p style="margin: 6px 0 0; font-size: 13.5px; color: #64748b;">Extends the tokens already in <span class="mono">tailwind.config.js</span> — nothing here is a new colour.</p>
+  </div>
+
+  <!-- ── colour ── -->
+  <div>
+    <div class="h">Colour</div>
+    <p style="margin: 8px 0 12px; font-size: 13px; color: #4b5a76; line-height: 1.6; max-width: 720px;">
+      The whole interface is the ink ramp plus one orange. Seven status colours became none: state is carried by grouping, weight and plain words. Orange marks <strong>the action you can take</strong> and <strong>unread</strong> — nothing else.
+    </p>
+
+    <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px;">
+      <div><div class="sw" style="background: #141b2d;"><span style="font-size: 10.5px; color: #ffffff;">ink-900</span></div><div class="mono" style="margin-top: 5px;">#141b2d</div><div style="font-size: 11.5px; color: #8a94a6;">Primary text</div></div>
+      <div><div class="sw" style="background: #33415c;"><span style="font-size: 10.5px; color: #ffffff;">ink-700</span></div><div class="mono" style="margin-top: 5px;">#33415c</div><div style="font-size: 11.5px; color: #8a94a6;">Read rows, body</div></div>
+      <div><div class="sw" style="background: #4b5a76;"><span style="font-size: 10.5px; color: #ffffff;">ink-600</span></div><div class="mono" style="margin-top: 5px;">#4b5a76</div><div style="font-size: 11.5px; color: #8a94a6;">Done rows</div></div>
+      <div><div class="sw" style="background: #64748b;"><span style="font-size: 10.5px; color: #ffffff;">ink-500</span></div><div class="mono" style="margin-top: 5px;">#64748b</div><div style="font-size: 11.5px; color: #8a94a6;">Section labels</div></div>
+      <div><div class="sw" style="background: #8a94a6;"><span style="font-size: 10.5px; color: #ffffff;">meta</span></div><div class="mono" style="margin-top: 5px;">#8a94a6</div><div style="font-size: 11.5px; color: #8a94a6;">Timestamps, hints</div></div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-top: 12px;">
+      <div><div class="sw" style="background: {{accent}};"><span style="font-size: 10.5px; color: #ffffff;">brand-500</span></div><div class="mono" style="margin-top: 5px;">#f26522</div><div style="font-size: 11.5px; color: #8a94a6;">Primary action, unread</div></div>
+      <div><div class="sw" style="background: #ffe6d9;"><span style="font-size: 10.5px; color: #33415c;">brand-100</span></div><div class="mono" style="margin-top: 5px;">#ffe6d9</div><div style="font-size: 11.5px; color: #8a94a6;">Marked text only</div></div>
+      <div><div class="sw" style="background: #f7f8fa; border: 1px solid #e6e8ec; box-sizing: border-box;"><span style="font-size: 10.5px; color: #4b5a76;">shell</span></div><div class="mono" style="margin-top: 5px;">#f7f8fa</div><div style="font-size: 11.5px; color: #8a94a6;">Sidebar</div></div>
+      <div><div class="sw" style="background: #f2f4f7;"><span style="font-size: 10.5px; color: #4b5a76;">hover / doc bg</span></div><div class="mono" style="margin-top: 5px;">#f2f4f7</div><div style="font-size: 11.5px; color: #8a94a6;">Row hover</div></div>
+      <div><div class="sw" style="background: #e6e8ec;"><span style="font-size: 10.5px; color: #4b5a76;">line</span></div><div class="mono" style="margin-top: 5px;">#e6e8ec / #eef0f3</div><div style="font-size: 11.5px; color: #8a94a6;">Borders / row rules</div></div>
+    </div>
+  </div>
+
+  <!-- ── type ── -->
+  <div>
+    <div class="h">Type</div>
+    <p style="margin: 8px 0 12px; font-size: 13px; color: #4b5a76; line-height: 1.6;">
+      The existing <span class="mono">system-ui</span> stack, unchanged. Six sizes. Hierarchy comes from weight and colour, not size jumps.
+    </p>
+    <div style="display: flex; flex-direction: column; gap: 0;">
+      <div style="display: grid; grid-template-columns: 190px 1fr; gap: 16px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid #eef0f3;"><span class="mono">19 / 600 / -0.015em</span><span style="font-size: 19px; font-weight: 600; letter-spacing: -0.015em;">Page title</span></div>
+      <div style="display: grid; grid-template-columns: 190px 1fr; gap: 16px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid #eef0f3;"><span class="mono">15 / 600</span><span style="font-size: 15px; font-weight: 600;">Wordmark, dialog title</span></div>
+      <div style="display: grid; grid-template-columns: 190px 1fr; gap: 16px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid #eef0f3;"><span class="mono">13.5 / 600</span><span style="font-size: 13.5px; font-weight: 600;">Unread row — weight, never colour</span></div>
+      <div style="display: grid; grid-template-columns: 190px 1fr; gap: 16px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid #eef0f3;"><span class="mono">13.5 / 400</span><span style="font-size: 13.5px; font-weight: 400; color: #33415c;">Read row</span></div>
+      <div style="display: grid; grid-template-columns: 190px 1fr; gap: 16px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid #eef0f3;"><span class="mono">12.5 / 400</span><span style="font-size: 12.5px; color: #64748b;">Secondary line, status words</span></div>
+      <div style="display: grid; grid-template-columns: 190px 1fr; gap: 16px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid #eef0f3;"><span class="mono">12 / 400</span><span style="font-size: 12px; color: #8a94a6;">Timestamp, hint</span></div>
+      <div style="display: grid; grid-template-columns: 190px 1fr; gap: 16px; align-items: baseline; padding: 9px 0;"><span class="mono">11 / 600 / 0.07em caps</span><span class="h">Section label</span></div>
+    </div>
+  </div>
+
+  <!-- ── metrics ── -->
+  <div>
+    <div class="h">Density &amp; shape</div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 11px;">
+      <div style="padding: 12px 14px; border: 1px solid #eef0f3; border-radius: 9px;"><div style="font-size: 17px; font-weight: 600;">62 / 44px</div><div style="font-size: 12px; color: #8a94a6; margin-top: 3px;">Row height, active / archived</div></div>
+      <div style="padding: 12px 14px; border: 1px solid #eef0f3; border-radius: 9px;"><div style="font-size: 17px; font-weight: 600;">232 / 56px</div><div style="font-size: 12px; color: #8a94a6; margin-top: 3px;">Sidebar, top bar</div></div>
+      <div style="padding: 12px 14px; border: 1px solid #eef0f3; border-radius: 9px;"><div style="font-size: 17px; font-weight: 600;">7px</div><div style="font-size: 12px; color: #8a94a6; margin-top: 3px;">Control radius (was 16)</div></div>
+      <div style="padding: 12px 14px; border: 1px solid #eef0f3; border-radius: 9px;"><div style="font-size: 17px; font-weight: 600;">30 / 34px</div><div style="font-size: 12px; color: #8a94a6; margin-top: 3px;">Button height, row / dialog</div></div>
+    </div>
+  </div>
+
+  <!-- ── controls ── -->
+  <div>
+    <div class="h">Controls</div>
+    <div style="display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap;">
+      <button style="height: 32px; padding: 0 15px; border: 0; border-radius: 7px; background: {{accent}}; color: #ffffff; font-size: 12.5px; font-weight: 600; font-family: inherit;">Primary</button>
+      <button style="height: 32px; padding: 0 15px; border: 1px solid #d7dbe2; border-radius: 7px; background: #ffffff; color: #141b2d; font-size: 12.5px; font-weight: 600; font-family: inherit;">Secondary</button>
+      <button style="height: 32px; padding: 0 15px; border: 0; border-radius: 7px; background: transparent; color: #64748b; font-size: 12.5px; font-weight: 500; font-family: inherit;">Quiet</button>
+      <button style="height: 32px; padding: 0 15px; border: 1px solid #d7dbe2; border-radius: 7px; background: #ffffff; color: #a8b0be; font-size: 12.5px; font-weight: 600; font-family: inherit;">Disabled</button>
+      <span style="height: 20px; display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid #d7dbe2; border-radius: 5px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: #4b5a76;">Draft</span>
+      <span style="display: inline-flex; align-items: center; gap: 7px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: {{accent}};"></span><span style="font-size: 12.5px; color: #64748b;">Unread</span></span>
+    </div>
+  </div>
+
+  <!-- ── the rules that matter ── -->
+  <div style="padding: 16px 18px; background: #f7f8fa; border-radius: 10px;">
+    <div class="h">Rules</div>
+    <div style="display: flex; flex-direction: column; gap: 7px; margin-top: 10px;">
+      <div class="rule"><strong>One accent, two jobs.</strong> Orange means an action you can take, or unread. If it appears anywhere else, it is decoration — remove it.</div>
+      <div class="rule"><strong>State is a heading, not a colour.</strong> Needs you · Waiting on someone else · Done. The reviewer's question is answered by where a row sits, before they read it.</div>
+      <div class="rule"><strong>Abstention is not an error.</strong> <span class="mono">needsMatch</span> gets no red and no warning icon — it is the system declining to guess, and it sits at the top because it is the work.</div>
+      <div class="rule"><strong>Rows are rows.</strong> A hairline between them, no card, no shadow, no radius. Shadow is for things that float: dialogs and the document.</div>
+      <div class="rule"><strong>Volume is a tab, not a scroll.</strong> Needs you / Waiting / Done / All carry their counts in the tab bar, so the three questions are answered at 12 requests and at 1,200 without moving. Group headings stick while the list scrolls.</div>
+      <div class="rule"><strong>Finished work gets one line.</strong> A done request is for finding, not reading: 44px, single line, grouped by day, with search as the instrument and explicit paging — never infinite scroll, which hides how much you have not seen.</div>
+      <div class="rule"><strong>No invented metrics.</strong> Counts come from rows that exist. The old "Avg. handle time 38s" was hardcoded and is gone.</div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"accent":{"editor":"color","default":"#f26522","options":["#f26522","#2d6be4","#141b2d","#4b5a76"]},"$preview":{"width":1100,"height":1440}}'>
+class Component extends DCLogic {
+  renderVals() { return { accent: this.props.accent ?? '#f26522' }; }
+}
+</script>
+</body>
+</html>

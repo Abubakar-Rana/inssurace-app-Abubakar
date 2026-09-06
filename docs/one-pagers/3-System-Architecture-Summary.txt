@@ -1,0 +1,78 @@
+===============================================================================
+ CERTFLOW - HOW THE SYSTEM IS PUT TOGETHER
+ Owner [YOUR NAME]  |  Date [DD MMM YYYY]
+===============================================================================
+
+ THE SHAPE OF IT
+
+   Agency mailbox --+                       +-- Staff web browser
+                    v                       v
+         +--------------------------------------------+
+         |           THE CERTFLOW APPLICATION         |
+         |  reads mail > works out who > fills the    |
+         |  form > hands it to a person to approve    |
+         +---------------------+----------------------+
+                               v
+                    +----------------------+
+                    |     THE DATABASE     |
+                    | clients, policies,   |
+                    | vehicles, records    |
+                    +----------------------+
+
+ One web system, used in an ordinary browser. It talks to two outside
+ services: the agency's email, and the agency's staff sign-in.
+
+ THE FIVE RULES THE WHOLE DESIGN FOLLOWS
+
+ 1. THE EMAIL SAYS WHAT WAS ASKED FOR. THE DATABASE SAYS WHAT IS TRUE.
+    Reading an email can only decide WHICH company a request is about. It has
+    no way to supply a policy number or a coverage amount. So the worst a
+    misread email can do is show a staff member the wrong company, which they
+    reject. It cannot produce a certificate claiming cover that does not
+    exist. This is the single most important idea in the system.
+
+ 2. THE SYSTEM IS ALLOWED TO SAY "I DON'T KNOW."
+    Every step involving interpretation can stop and ask a person.
+
+ 3. THE FORM IS DEFINED ONCE.
+    One description of where each box sits. The screen staff see and the file
+    the broker receives are both built from it, so they cannot drift apart.
+
+ 4. THE DATABASE ENFORCES THE RULES, NOT JUST THE SOFTWARE.
+    Keeping one agency's data away from another's is done by the database
+    itself. If the software forgets to filter, nothing comes back - rather
+    than someone else's client list.
+
+ 5. THE HUMAN STEP IS PROTECTED.
+    Preparing the document is automated because it is just copying. Issuing
+    and sending are not, because they cannot be undone. The one exception is
+    the question it sends when two clients are too alike - which carries no
+    coverage and no document.
+
+ HOW THE DATA IS KEPT SAFE
+   - Staff sign in with their existing work account. No passwords are stored,
+     so there is nothing to steal or reset.
+   - Removing access takes effect immediately, not at next sign-in.
+   - Mail that is not a request is never stored. Requests that are stored are
+     marked for deletion after 30 days.
+   - The record of who did what cannot be edited or deleted by anyone,
+     including us. Altering an entry would be detectable.
+   - Each agency's data can be locked with its own key, so "delete
+     everything" can be honoured in full. Built, not yet switched on.
+
+ THREE THINGS A PROJECT MANAGER SHOULD KNOW
+
+ IT RUNS AS TWO PROGRAMS. One serves the screens; one watches the mailbox and
+ must be kept running. If the watcher stops, the dashboard looks exactly like a
+ quiet mailbox - so somebody needs to be told when it does.
+
+ IT SENDS ONE MESSAGE ON ITS OWN. When two of the agency's clients are named
+ too alike, it emails the requester to ask which. No coverage, no document,
+ just a question. It can be switched off.
+
+ BUILT FOR MANY AGENCIES, USED BY ONE. The separation is enforced properly.
+ It has simply not been exercised with a second agency yet.
+
+===============================================================================
+ Full detail: docs/03-System-Architecture.txt
+===============================================================================

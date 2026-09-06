@@ -1,0 +1,75 @@
+===============================================================================
+ CERTFLOW - WHERE THE PROJECT STANDS
+ Owner [YOUR NAME]  |  Date [DD MMM YYYY]
+===============================================================================
+
+ WHERE WE STARTED
+ The original build was a screen mock-up of one step of a ten-step job. It
+ looked right, but had no server, no database, no sign-in, no email and no
+ record keeping. About 40% was worth keeping. The rest was rebuilt.
+
+ WHAT A REQUEST DOES TODAY - START TO FINISH
+
+ A broker emails the agency asking for a certificate. Within a few seconds of
+ it arriving, with nobody clicking anything:
+
+   - the system decides whether it is a certificate request at all; if not,
+     it is never stored
+   - it reads who is asking, from the signature at the bottom
+   - it reads which company the certificate is for, from the body
+   - it matches that to a client on the agency's books. If two clients fit
+     equally, it emails the requester asking which and waits for the answer
+   - it gathers the policy, vehicle and company details from the database
+   - it produces the finished certificate, leaving out vehicle ID numbers
+     unless they were asked for, and spilling large fleets onto a second page
+
+ The request APPEARS ON SCREEN BY ITSELF - pushed to the browser, no reload,
+ no button. From here a person is required:
+
+   REVIEW    they open the certificate and check every field
+   APPROVE   the document is locked. Nothing has been sent yet.
+   SEND      they confirm the address, and it is emailed back into the
+             original conversation with the file attached
+
+ A correction is issued as a new version of the same certificate number, so
+ the broker sees the number they already have, not a second one.
+
+ SPEED
+ 7-8 seconds from a message landing in the mailbox to appearing on screen. The
+ sender's own mail provider typically adds another 5-7 seconds before we can
+ see it at all, which is outside this system.
+
+ HOW WE KNOW IT WORKS
+ 236 automated checks, run on demand, including 45 that drive a real browser
+ through the whole job and three that send genuine email. The certificate the
+ system produces was compared field by field against one the agency had
+ produced by hand: all 17 fields match, including which vehicles go on which
+ page. Roughly half the checks confirm the system correctly REFUSES to act -
+ for software that states insurance cover, when it must stop matters as much as
+ when it must proceed.
+
+ WHAT IS NOT DONE
+   - Not connected to the agency's real book of business. Biggest item, and
+     it waits on a client decision.
+   - The mailbox connection uses a method fine for our own test account but
+     not safe enough for a customer's.
+   - Data locking is written but not switched on.
+   - Old emails are deleted by running a command, not on a schedule.
+   - No screen for viewing the audit record, and no limit on how often the
+     system can be called.
+   - The mailbox watcher is a second process that must be kept running and
+     supervised.
+   - Only one agency, with two test companies, has been run through it. How
+     well name-matching copes with a real list of hundreds of similar company
+     names is unknown until we have real data.
+
+ THE HONEST SUMMARY FOR A CLIENT CONVERSATION
+ The hard parts are done: an exact copy of the industry form checked against a
+ real certificate, a tamper-proof record, keeping agencies' data apart, and a
+ system that knows when to stop and ask - and now, who to ask. What remains is
+ mostly plumbing and operational tidying: well understood, not free, and mostly
+ waiting on other people rather than on us.
+
+===============================================================================
+ Full detail: docs/05-Development-Summary.txt
+===============================================================================
