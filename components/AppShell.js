@@ -39,9 +39,15 @@ function NavItem({ href, icon: I, label, active, count }) {
  * a green light for "working normally" is decoration — what matters is that a
  * DROPPED feed cannot look like a quiet mailbox.
  */
-function FeedState({ live }) {
-  const label =
-    live === "live" ? "Watching mailbox" : live === "connecting" ? "Connecting…" : "Reconnecting…";
+function FeedState({ live, mailbox }) {
+  const noInbox = mailbox && !mailbox.configured;
+  const label = noInbox
+    ? "No inbox connected"
+    : live === "live"
+      ? "Watching mailbox"
+      : live === "connecting"
+        ? "Connecting…"
+        : "Reconnecting…";
   const title =
     live === "live"
       ? "The server is watching the mailbox and pushing changes to this screen."
@@ -68,11 +74,26 @@ export default function AppShell({ children, inboxCount = 0 }) {
   const pathname = usePathname();
   const store = useStore();
   const [user, setUser] = useState(null);
+  const [mailbox, setMailbox] = useState(null);
 
   useEffect(() => {
     fetch("/api/auth/session")
       .then((r) => (r.ok ? r.json() : null))
-      .then((body) => body && setUser(body.user))
+      .then((body) => {
+        if (!body) return;
+        // Server routes already refuse a temporary password; this just takes
+        // the user straight to the one screen that still works for them.
+        if (body.user?.mustChangePassword) {
+          window.location.href = "/account/password";
+          return;
+        }
+        setUser(body.user);
+        // Whether this agency has an inbox yet — drives the onboarding banner.
+        fetch("/api/mail/status")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((m) => m && setMailbox(m))
+          .catch(() => {});
+      })
       .catch(() => {});
   }, []);
 
@@ -80,7 +101,7 @@ export default function AppShell({ children, inboxCount = 0 }) {
     <div className="flex h-screen overflow-hidden bg-white">
       {/* ───────────────────────── sidebar ───────────────────────── */}
       <aside className="no-print hidden w-[232px] flex-none flex-col border-r border-line bg-surface-shell lg:flex">
-        <Link href="/" className="flex h-14 items-center gap-2.5 px-[18px]">
+        <Link href="/inbox" className="flex h-14 items-center gap-2.5 px-[18px]">
           <span className="flex h-[26px] w-[26px] items-center justify-center rounded-[7px] bg-brand-500 text-white">
             <Icon.Shield width={15} height={15} strokeWidth={2} />
           </span>
@@ -90,18 +111,21 @@ export default function AppShell({ children, inboxCount = 0 }) {
         {/* Only destinations that exist. A nav item that goes nowhere is worse
             than a shorter nav. */}
         <nav className="flex flex-col gap-px px-2.5 py-2">
-          <NavItem href="/" icon={Icon.Inbox} label="Inbox" active={pathname === "/"} count={inboxCount} />
+          <NavItem href="/inbox" icon={Icon.Inbox} label="Inbox" active={pathname === "/inbox"} count={inboxCount} />
           <NavItem
             href="/certificates"
             icon={Icon.Doc}
             label="Certificates"
             active={pathname.startsWith("/certificates")}
           />
+          {user?.role === "admin" && (
+            <NavItem href="/settings" icon={Icon.Settings} label="Settings" active={pathname.startsWith("/settings")} />
+          )}
         </nav>
 
         <div className="flex-1" />
 
-        <FeedState live={store.live} />
+        <FeedState live={store.live} mailbox={mailbox} />
 
         <div className="flex items-center gap-2.5 px-3.5 pb-3.5 pt-2.5">
           <span className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-full bg-[#e0e3e8] text-[10.5px] font-semibold text-ink-600">
@@ -109,7 +133,10 @@ export default function AppShell({ children, inboxCount = 0 }) {
           </span>
           <div className="min-w-0 leading-tight">
             <p className="truncate text-[12px] font-medium text-ink-700">{user?.name || "…"}</p>
-            <p className="truncate text-[11px] text-ink-400">{user?.email || ""}</p>
+            <p className="truncate text-[11px] text-ink-400">{user?.tenantName || user?.email || ""}</p>
+            <Link href="/account/password" className="text-[11px] text-ink-400 hover:text-ink-700">
+              Change password
+            </Link>
           </div>
           <button
             onClick={signOut}
@@ -126,7 +153,7 @@ export default function AppShell({ children, inboxCount = 0 }) {
         {/* Deliberately thin. The screen's content carries the work; the bar
             carries identity and how much is unlooked-at. */}
         <header className="no-print flex h-14 flex-none items-center gap-4 border-b border-line px-[22px]">
-          <Link href="/" className="flex items-center gap-2.5 lg:hidden">
+          <Link href="/inbox" className="flex items-center gap-2.5 lg:hidden">
             <span className="flex h-[26px] w-[26px] items-center justify-center rounded-[7px] bg-brand-500 text-white">
               <Icon.Shield width={15} height={15} strokeWidth={2} />
             </span>
@@ -157,8 +184,46 @@ export default function AppShell({ children, inboxCount = 0 }) {
             inside it, so no outer bar appears there — but a document page is
             taller than the window and must be able to move. `overflow-hidden`
             here silently trapped the certificate pages. */}
+        {pathname === "/inbox" && <InboxBanner mailbox={mailbox} />}
         <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Onboarding: until the agency's inbox is connected, nothing arrives, so the
+ * inbox page says so and — for an admin — offers the one click that fixes it.
+ * Also surfaces a connected inbox that has stopped working (for example,
+ * access revoked in Google), which would otherwise look like a quiet day.
+ */
+function InboxBanner({ mailbox }) {
+  if (!mailbox) return null;
+  const broken = mailbox.configured && mailbox.lastError;
+  if (mailbox.configured && !broken) return null;
+
+  const text = !mailbox.configured
+    ? mailbox.canConnect
+      ? "Connect your agency's inbox to start receiving certificate requests automatically. It takes about a minute."
+      : "Your agency's inbox is not connected yet, so no requests can arrive. Ask your agency admin to connect it in Settings."
+    : `There is a problem with the inbox ${mailbox.account}: ${mailbox.lastError}`;
+
+  return (
+    <div
+      className={`no-print flex flex-wrap items-center gap-3 border-b px-[22px] py-3 text-[13px] ${
+        broken ? "border-red-100 bg-red-50 text-red-800" : "border-brand-100 bg-brand-50 text-ink-800"
+      }`}
+    >
+      <Icon.Mail width={17} height={17} />
+      <span className="min-w-0 flex-1">{text}</span>
+      {mailbox.canConnect && (
+        <Link
+          href="/settings?tab=email"
+          className="rounded-lg bg-brand-500 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-brand-600"
+        >
+          {broken ? "Fix in Settings" : "Connect inbox"}
+        </Link>
+      )}
     </div>
   );
 }

@@ -31,6 +31,17 @@ BEGIN
   END IF;
 END $$;
 
+-- Let the connecting user drop INTO the application role for each tenant
+-- transaction (lib/db/client.ts withTenant, DB_ENFORCE_RLS=1). Without this the
+-- connection user — BYPASSRLS on Supabase — would never be subject to the
+-- policies below.
+DO $$
+BEGIN
+  EXECUTE format('GRANT certflow_app TO %I', current_user);
+EXCEPTION WHEN others THEN
+  RAISE NOTICE 'could not grant certflow_app to %: %', current_user, SQLERRM;
+END $$;
+
 GRANT USAGE ON SCHEMA public TO certflow_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO certflow_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO certflow_app;
@@ -48,7 +59,8 @@ DECLARE
   tenant_tables text[] := ARRAY[
     'tenant_keys', 'users', 'producers', 'clients', 'client_aliases',
     'policies', 'vehicles', 'certificate_holders', 'coi_requests',
-    'interpretations', 'certificates', 'deliveries', 'audit_log'
+    'interpretations', 'certificates', 'deliveries', 'audit_log',
+    'tenant_mail_settings', 'tenant_nowcerts_settings'
   ];
 BEGIN
   FOREACH t IN ARRAY tenant_tables LOOP
@@ -73,3 +85,15 @@ CREATE POLICY tenant_self ON tenants
 -- `insurers` is national reference data (NAIC codes are federal), shared by all
 -- tenants and containing no customer information. Intentionally no RLS.
 GRANT SELECT ON insurers TO certflow_app;
+-- The NowCerts sync records carriers it has not seen before. Carrier names and
+-- NAIC codes are public reference data, so writing them is not a tenant leak.
+GRANT INSERT, UPDATE ON insurers TO certflow_app;
+
+-- `platform_admins` are Nestnic staff, not members of any tenant. The tenant
+-- application role has no business reading them at all — revoke rather than
+-- write a policy, so there is nothing to get wrong.
+REVOKE ALL ON platform_admins FROM certflow_app;
+
+-- `access_requests` are public enquiries, not tenant data, and nobody signs
+-- in from them. The tenant application role has no business reading them.
+REVOKE ALL ON access_requests FROM certflow_app;

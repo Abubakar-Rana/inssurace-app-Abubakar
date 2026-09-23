@@ -197,6 +197,73 @@ email, matches the insured in AMS360, and auto-fills a pixel-perfect **ACORD 25
 > Sections below still describe the **original prototype** and are accurate for
 > the UI layer only.
 
+> **SaaS layer (2026-09-21, branch feature/saas-multitenant).** Many agencies on
+> one deployment. Additive only — the email → match → draft → send pipeline is
+> unchanged; each agency just gets its own mailbox and data source.
+>
+> - **Login:** email + password (`app/api/auth/login`, scrypt in
+>   `lib/auth/password.ts`, 5-strike lockout, temporary passwords that must be
+>   changed — `route()` in `lib/api.ts` refuses everything else until then) AND
+>   the existing OIDC. Users are never self-registered.
+> - **Nestnic console** `/admin`: separate table (`platform_admins`), separate
+>   cookie bound by `aud: "platform"` (`lib/auth/platform.ts`). Creates agencies
+>   (`lib/admin/accounts.ts`), users, resets, suspensions, and the per-agency
+>   `allowUserManagement` switch. First admin: `npm run admin:create -- --email … --name …`.
+> - **Agency Settings** `/settings` (admins): producer box, mailbox
+>   (`lib/mail/settings.ts`), NowCerts (`lib/nowcerts/*`), auto-send, users.
+> - **Secrets** (mail + NowCerts passwords) are sealed with the tenant DEK
+>   (`lib/crypto/tenantSecrets.ts`) and have NO read path to a browser.
+> - **Mail hosts are SSRF-guarded** (`lib/mail/netguard.ts`): public DNS names
+>   only, TLS ports only, re-checked before every connection.
+> - **Watcher** (`lib/gmail/watcher.ts`) supervises one IMAP loop per agency and
+>   restarts a loop when its settings change. Only `MAIL_ENV_TENANT_SLUG` may fall
+>   back to the `.env` mailbox — never another agency.
+> - **NowCerts** is COPIED into clients/policies/vehicles (`source=nowcerts`),
+>   so matching and assembly are untouched. Hand-entered rows are never touched.
+>   Field names come from the Postman collection + https://api.nowcerts.com/Help
+>   and are **not yet verified against a live account**.
+> - **Auto-send** (`lib/certificate/autoSend.ts`) is per agency, OFF by default,
+>   and only fires for `matched` / `requesterConfirmed` — through the normal
+>   approve + deliver path, audited as the system.
+> - **`DB_ENFORCE_RLS=1`**: `withTenant` does `SET LOCAL ROLE certflow_app`.
+>   Before this, the app connected as a BYPASSRLS user and RLS was not enforced.
+>
+> Tests: `npm run verify:saas` (pure) and `DB_ENFORCE_RLS=1 npm run verify:saas:db`
+> (throwaway database only — it creates and deletes agencies).
+>
+> **Connect your inbox, and the public site (2026-09-22).**
+>
+> - **OAuth inboxes.** Settings -> Email offers "Connect Gmail" and "Connect
+>   Outlook"; `lib/mail/oauth.ts` (consent URL, signed single-use state, PKCE,
+>   token refresh incl. Microsoft's ROTATING refresh tokens, revoke) and
+>   `lib/mail/api.ts` (Gmail API / Graph, raw MIME both ways, so
+>   `parseRawEmail` and the composer keep ingestion and threading identical to
+>   IMAP). Routes: `app/api/mail/oauth/[provider]/{start,callback}`. The
+>   callback is authenticated by the STATE cookie, not the session — a
+>   SameSite=Strict session cookie does not survive the provider's redirect —
+>   and re-checks the user in the database. Scopes are read+send only.
+> - **App passwords still work** as "Advanced" for other providers.
+> - **The watcher** polls OAuth inboxes (`MAIL_API_POLL_SECONDS`, default 10s)
+>   instead of holding IMAP IDLE, and backs off to 5 minutes once a grant is
+>   revoked, which only reconnecting fixes.
+> - **Routing changed: the dashboard is now `/inbox`.** `/` is the public
+>   marketing page (`app/welcome-landing`, `components/landing/*`), `/welcome`
+>   redirects to it, and a signed-in visitor to `/` is sent to `/inbox`.
+> - **`/signup` is "Request access", NOT self sign-up.** It records an enquiry
+>   (`access_requests`); a Nestnic admin approves it in the console, which is
+>   what creates the agency. Public endpoint: honeypot, per-IP and per-email
+>   rate limits, same-origin only, grants nothing.
+> - **lib/certificate/load.ts filters by tenant explicitly.** It used to rely on
+>   RLS alone; with `DB_ENFORCE_RLS` off that put one agency's PRODUCER block on
+>   another agency's certificate. Found by `npm run verify:ui`, fixed, and the
+>   reason the flag should be on.
+>
+> Tests: `npm run verify:mail-oauth` (pure; network faked).
+>
+> Known pre-existing failures in `npm run verify:ui`: "shows draft state" and
+> "edit mode opens" — the certificate page says "DRAFT"/"Edit fields", the test
+> still expects "Draft"/"Edit form". Not caused by the SaaS work.
+
 **Prototype (UI layer):** state is client-side in `localStorage`; "email" and
 "AMS360" data is hard-coded in [lib/seed.js](lib/seed.js). Both are being
 replaced by the database — do not build on them.

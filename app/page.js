@@ -1,15 +1,20 @@
-"use client";
+// The public front page.
+//
+// Signed-in users never see it: middleware.ts sends them to /inbox, which is
+// where the dashboard now lives. The markup is the marketing page in
+// app/welcome-landing; this wraps it in the landing fonts (the same wrapper
+// that page's own layout applies) so "/" and "/welcome-landing" render
+// identically.
 
-import AppShell from "@/components/AppShell";
-import InboxView from "@/components/InboxView";
-import { useStore } from "@/lib/store";
+import { landingFonts } from "@/components/landing/fonts";
+import WelcomeLanding from "./welcome-landing/page";
+
+export { metadata } from "./welcome-landing/layout";
 
 export default function HomePage() {
-  const store = useStore();
-  const inboxCount = store.requests.filter((r) => r.status === "new").length;
   return (
-    <AppShell inboxCount={inboxCount}>
-      <InboxView />
-    </AppShell>
+    <div className={`${landingFonts} landing font-body`}>
+      <WelcomeLanding />
+    </div>
   );
 }

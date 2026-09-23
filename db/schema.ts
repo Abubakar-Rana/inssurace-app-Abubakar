@@ -74,7 +74,143 @@ export const tenants = pgTable("tenants", {
   sendingDomain: text("sending_domain"),
   acordEdition: text("acord_edition").notNull().default("2014/01"),
   status: text("status").notNull().default("active"),
+  /**
+   * Whether this agency's own admins may create and disable their users.
+   *
+   * Set by Nestnic, never by the agency. Some agencies are sold a single
+   * admin seat that only we provision; for them this stays false and the
+   * Users screen is read-only.
+   */
+  allowUserManagement: boolean("allow_user_management").notNull().default(false),
+  /**
+   * Issue and email a certificate the moment it is drafted, with no reviewer.
+   *
+   * OFF by default. Only applies to requests the resolver matched on its own
+   * (`matched`); anything ambiguous still stops for a human, so turning this on
+   * never lets a guess leave the building.
+   */
+  autoSend: boolean("auto_send").notNull().default(false),
+  /** Where clients/policies/vehicles come from: "certflow" (entered here) or "nowcerts" (synced). */
+  dataSource: text("data_source").notNull().default("certflow"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * Nestnic staff who operate the platform: create agencies, provision their
+ * first admin, reset passwords, suspend accounts.
+ *
+ * Deliberately a separate table from `users`, with a separate cookie. A
+ * platform admin is not a member of any tenant and never gets a tenant session,
+ * so a bug in tenant authorization cannot hand them — or anyone impersonating
+ * them — an agency's data, and an agency admin can never escalate into here.
+ */
+export const platformAdmins = pgTable("platform_admins", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  email: text("email").notNull().unique(),
+  name: text("name").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  mustChangePassword: boolean("must_change_password").notNull().default(true),
+  failedLogins: integer("failed_logins").notNull().default(0),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * "Request access" from the public marketing page.
+ *
+ * Nobody can create their own account: this is an enquiry, not a sign-up. A row
+ * here grants nothing at all — a Nestnic admin reads it and, if they approve,
+ * creates the agency in the usual way. That keeps the rule that membership of
+ * CertFlow is always an explicit decision by us.
+ *
+ * Not tenant-scoped (there is no tenant yet), so it carries no RLS policy and
+ * db/rls.sql keeps the tenant application role away from it entirely.
+ */
+export const accessRequests = pgTable(
+  "access_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    agencyName: text("agency_name").notNull(),
+    contactName: text("contact_name").notNull(),
+    email: text("email").notNull(),
+    phone: text("phone"),
+    message: text("message"),
+    /** new | approved | declined */
+    status: text("status").notNull().default("new"),
+    /** Set when approved, so the enquiry points at the agency it became. */
+    tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: "set null" }),
+    reviewedBy: uuid("reviewed_by"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    /** Kept for abuse handling only. */
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ statusIdx: index("access_requests_status_idx").on(t.status, t.createdAt) })
+);
+
+/**
+ * The mailbox an agency's requests arrive in, and replies go out from.
+ *
+ * IMAP + SMTP with an app password: works with Gmail, Microsoft 365 and most
+ * hosted mail without registering an OAuth app per provider. The password is
+ * encrypted with the tenant's own data key and there is NO read path back to a
+ * browser — the settings API reports only whether one is set.
+ */
+export const tenantMailSettings = pgTable("tenant_mail_settings", {
+  tenantId: uuid("tenant_id")
+    .primaryKey()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /**
+   * "google" / "microsoft": connected through the provider's own consent
+   * pop-up (OAuth). "imap": the app-password fallback for other providers.
+   */
+  provider: text("provider").notNull().default("imap"),
+  emailAddress: text("email_address").notNull(),
+  // ---- app-password (imap) connections only ----
+  username: text("username"),
+  passwordEnc: text("password_enc"),
+  imapHost: text("imap_host"),
+  imapPort: integer("imap_port").notNull().default(993),
+  smtpHost: text("smtp_host"),
+  smtpPort: integer("smtp_port").notNull().default(465),
+  // ---- OAuth connections only ----
+  /** The provider's refresh token, sealed with the tenant DEK. Access tokens are never stored. */
+  oauthRefreshTokenEnc: text("oauth_refresh_token_enc"),
+  /** Scopes the user actually granted — checked, because consent screens let people untick some. */
+  oauthScopes: text("oauth_scopes"),
+  /** Who clicked "Connect", for the audit trail and the Settings screen. */
+  connectedBy: uuid("connected_by"),
+  mailbox: text("mailbox").notNull().default("INBOX"),
+  enabled: boolean("enabled").notNull().default(true),
+  lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * NowCerts API credentials, for agencies whose system of record is NowCerts.
+ *
+ * Their clients, policies and vehicles are copied into the ordinary tables on a
+ * schedule (lib/nowcerts/sync.ts), so matching and assembly read local rows
+ * exactly as they do for everyone else — NowCerts being slow or down never
+ * stops a certificate. Password encrypted like the mail password.
+ */
+export const tenantNowcertsSettings = pgTable("tenant_nowcerts_settings", {
+  tenantId: uuid("tenant_id")
+    .primaryKey()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  username: text("username").notNull(),
+  passwordEnc: text("password_enc").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  syncIntervalMinutes: integer("sync_interval_minutes").notNull().default(30),
+  lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+  lastSyncStatus: text("last_sync_status"),
+  lastSyncError: text("last_sync_error"),
+  lastSyncStats: jsonb("last_sync_stats").$type<Record<string, number>>(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 /**
@@ -109,9 +245,17 @@ export const users = pgTable(
     email: text("email").notNull(),
     name: text("name").notNull(),
     role: userRole("role").notNull().default("reviewer"),
-    // Identity lives at the IdP (Google Workspace / Entra). No password column
-    // exists here by design — nothing to phish, leak, or reset. (Security L3)
+    // Two ways in: the agency's IdP (Google Workspace / Entra), which stores
+    // nothing here, or a password we issue. The password is optional — a user
+    // who only ever signs in through their IdP has a null hash and no password
+    // to phish or reset. (Security L3)
     externalSubject: text("external_subject"),
+    /** scrypt, see lib/auth/password.ts. Null = IdP sign-in only. */
+    passwordHash: text("password_hash"),
+    /** Set when Nestnic or an agency admin issues a temporary password. */
+    mustChangePassword: boolean("must_change_password").notNull().default(false),
+    failedLogins: integer("failed_logins").notNull().default(0),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
     mfaEnabled: boolean("mfa_enabled").notNull().default(false),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     status: text("status").notNull().default("active"),
@@ -119,6 +263,9 @@ export const users = pgTable(
   },
   (t) => ({
     emailUq: uniqueIndex("users_tenant_email_uq").on(t.tenantId, t.email),
+    // Sign-in is by email alone — nobody types a tenant — so an address can
+    // belong to one agency only. Without this a login would have to guess.
+    emailGlobalUq: uniqueIndex("users_email_uq").on(t.email),
   })
 );
 
@@ -175,12 +322,18 @@ export const clients = pgTable(
     // encrypted and searched via a deterministic HMAC blind index.
     feinEnc: text("fein_enc"),
     feinBidx: text("fein_bidx"),
+    /** "certflow" = entered here; "nowcerts" = copied by lib/nowcerts/sync.ts, which
+     *  only ever touches its own rows. */
+    source: text("source").notNull().default("certflow"),
+    /** The record id in the source system. Null for rows entered here. */
+    externalId: text("external_id"),
     status: text("status").notNull().default("active"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
     tenantIdx: index("clients_tenant_idx").on(t.tenantId),
     dotIdx: index("clients_dot_idx").on(t.tenantId, t.dotNumber),
+    extIdx: index("clients_ext_idx").on(t.tenantId, t.source, t.externalId),
     feinIdx: index("clients_fein_bidx").on(t.tenantId, t.feinBidx),
   })
 );
@@ -245,10 +398,16 @@ export const policies = pgTable(
      * the agency owns the wording, so nothing here is generated.
      */
     operationsNote: text("operations_note"),
+    /** "certflow" = entered here; "nowcerts" = copied by lib/nowcerts/sync.ts, which
+     *  only ever touches its own rows. */
+    source: text("source").notNull().default("certflow"),
+    /** The record id in the source system. Null for rows entered here. */
+    externalId: text("external_id"),
     status: text("status").notNull().default("active"),
   },
   (t) => ({
     clientIdx: index("policies_client_idx").on(t.tenantId, t.clientId),
+    extIdx: index("policies_ext_idx").on(t.tenantId, t.source, t.externalId),
   })
 );
 
@@ -280,8 +439,16 @@ export const vehicles = pgTable(
      * while still matching the source of record. Ties break on VIN.
      */
     sortOrder: integer("sort_order").notNull().default(0),
+    /** "certflow" = entered here; "nowcerts" = copied by lib/nowcerts/sync.ts, which
+     *  only ever touches its own rows. */
+    source: text("source").notNull().default("certflow"),
+    /** The record id in the source system. Null for rows entered here. */
+    externalId: text("external_id"),
   },
-  (t) => ({ clientIdx: index("vehicles_client_idx").on(t.tenantId, t.clientId) })
+  (t) => ({
+    clientIdx: index("vehicles_client_idx").on(t.tenantId, t.clientId),
+    extIdx: index("vehicles_ext_idx").on(t.tenantId, t.source, t.externalId),
+  })
 );
 
 /** Reusable certificate holders — brokers and load boards request constantly,

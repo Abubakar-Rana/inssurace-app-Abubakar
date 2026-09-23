@@ -30,6 +30,13 @@ export interface SessionClaims {
   iat: number;
   /** expires at, epoch seconds */
   exp: number;
+  /**
+   * Which kind of session this is. Absent for an agency user; "platform" for
+   * Nestnic staff (lib/auth/platform.ts). Both are signed with the same secret,
+   * so this is what stops one being replayed as the other: a parser only
+   * accepts the audience it was asked for.
+   */
+  aud?: "platform";
 }
 
 let keyPromise: Promise<CryptoKey> | null = null;
@@ -85,7 +92,10 @@ export async function serializeSession(claims: SessionClaims): Promise<string> {
 }
 
 /** Returns null for anything malformed, mis-signed, or expired. */
-export async function parseSession(value: string | undefined): Promise<SessionClaims | null> {
+export async function parseSession(
+  value: string | undefined,
+  aud?: "platform"
+): Promise<SessionClaims | null> {
   if (!value) return null;
   const dot = value.lastIndexOf(".");
   if (dot <= 0) return null;
@@ -111,6 +121,7 @@ export async function parseSession(value: string | undefined): Promise<SessionCl
 
   if (typeof claims?.sub !== "string" || typeof claims?.tenantId !== "string") return null;
   if (typeof claims.exp !== "number" || claims.exp <= Math.floor(Date.now() / 1000)) return null;
+  if (claims.aud !== aud) return null;
 
   return claims;
 }

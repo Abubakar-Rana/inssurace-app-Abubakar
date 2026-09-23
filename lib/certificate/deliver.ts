@@ -133,10 +133,12 @@ export async function deliverCertificate(
   let sent;
   try {
     sent = await sendReply({
+      tenantId: session.tenantId,
       to,
       subject: request?.subject ?? `Certificate of insurance — ${snapshot.insured.name}`,
       text: coveringNote(snapshot, certificate.revision),
       inReplyTo: request?.gmailMessageId ?? null,
+      threadId: request?.gmailThreadId ?? null,
       // Marks this as our own output so ingestion does not read it back.
       // Until follow-ups were ingested this did not matter: a reply in a
       // handled thread was dropped anyway. Now that a reply in a thread

@@ -212,7 +212,8 @@ async function main() {
 
   try {
     // ---- gated when signed out ----
-    await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+    // The dashboard lives at /inbox; "/" is the public marketing page.
+    await page.goto(`${BASE}/inbox`, { waitUntil: "domcontentloaded" });
     check("signed out -> /signin", new URL(page.url()).pathname === "/signin", page.url());
     // Past the Suspense fallback before anything looks at the DOM.
     await page.waitForFunction(() => document.body.innerText.includes("CertFlow"), {
@@ -221,9 +222,11 @@ async function main() {
     await shot(page, "1-signin");
 
     // ---- sign in ----
-    const signedIn = await clickUntil(page, "Sign in", async () => {
+    // The page now also has an email + password form whose button is "Sign in";
+    // this test uses the development sign-in, so it names that button exactly.
+    const signedIn = await clickUntil(page, "Sign in (development)", async () => {
       const p = new URL(page.url()).pathname;
-      return p === "/" || (await bodyHas(page, "Certificate Requests")());
+      return p === "/inbox" || (await bodyHas(page, "Certificate Requests")());
     });
     check("signed in -> inbox", signedIn, page.url());
     await page.waitForSelector("h1", { timeout: 15000 });

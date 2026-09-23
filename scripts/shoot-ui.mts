@@ -65,7 +65,7 @@ async function main() {
       // that said "Signing in…" forever.
       await clickText(page, "Sign in");
       for (let i = 0; i < 60; i++) {
-        if (new URL(page.url()).pathname === "/") break;
+        if (new URL(page.url()).pathname === "/inbox") break;
         await new Promise((r) => setTimeout(r, 500));
       }
     }

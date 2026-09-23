@@ -95,6 +95,9 @@ async function main() {
     email: user.email,
     name: user.name,
     role: user.role,
+    tenantName: tenant.name,
+    mustChangePassword: false,
+    canManageUsers: false,
   };
 
   console.log(`mailbox: ${process.env.GMAIL_USER}\n`);

@@ -70,7 +70,7 @@ export async function GET(req: Request) {
       });
     });
 
-    const res = NextResponse.redirect(new URL("/", process.env.APP_URL || "http://localhost:3000"));
+    const res = NextResponse.redirect(new URL("/inbox", process.env.APP_URL || "http://localhost:3000"));
     res.cookies.set(
       SESSION_COOKIE,
       await serializeSession(newClaims(user.id, user.tenantId)),

@@ -132,6 +132,9 @@ async function rank(tx: TenantDb, query: string): Promise<Candidate[]> {
                similarity(lower(c.legal_name), ${normalized})
              ) as score
       from clients c
+      -- A retired client (e.g. no live policy left in NowCerts) must not win a
+      -- match; the DOT/MC lookup in identifier.ts applies the same rule.
+      where c.status = 'active'
       union all
       select c.id, c.client_number, c.legal_name,
              a.alias as matched_on,
@@ -142,6 +145,7 @@ async function rank(tx: TenantDb, query: string): Promise<Candidate[]> {
              ) as score
       from client_aliases a
       join clients c on c.id = a.client_id
+      where c.status = 'active'
     )
     -- One row per client: an alias hit and a legal-name hit are evidence for
     -- the same company, so keep only its best evidence.

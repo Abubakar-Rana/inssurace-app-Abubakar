@@ -9,8 +9,9 @@
  */
 
 import { NextResponse } from "next/server";
-import { AuthError, requireSession, type Session } from "@/lib/auth/session";
+import { AuthError, ForbiddenError, requireSession, type Session } from "@/lib/auth/session";
 import { ServiceError } from "@/lib/certificate/service";
+import { requirePlatformAdmin, type PlatformSession } from "@/lib/auth/platform";
 
 export type Handler<T> = (session: Session, req: Request, ctx: { params: T }) => Promise<Response>;
 
@@ -24,7 +25,7 @@ const MUTATING = new Set(["POST", "PATCH", "PUT", "DELETE"]);
  * pair of braces, and it also covers the case where a future change relaxes the
  * cookie to `lax` for an OAuth redirect.
  */
-function checkOrigin(req: Request): void {
+export function checkOrigin(req: Request): void {
   if (!MUTATING.has(req.method)) return;
 
   const origin = req.headers.get("origin");
@@ -53,10 +54,19 @@ export function route<T>(handler: Handler<T>) {
     try {
       checkOrigin(req);
       const session = await requireSession();
+      // A temporary password is a credential somebody else chose and has seen.
+      // Until the user replaces it, the only thing it opens is the screen that
+      // replaces it (app/api/auth/password, which does not go through here).
+      if (session.mustChangePassword) {
+        throw new ForbiddenError("Set a new password before continuing.");
+      }
       return await handler(session, req, ctx);
     } catch (err) {
       if (err instanceof AuthError) {
         return NextResponse.json({ error: err.message }, { status: 401 });
+      }
+      if (err instanceof ForbiddenError) {
+        return NextResponse.json({ error: err.message }, { status: 403 });
       }
       if (err instanceof ServiceError) {
         return NextResponse.json({ error: err.message }, { status: err.status });
@@ -65,6 +75,37 @@ export function route<T>(handler: Handler<T>) {
       return NextResponse.json({ error: "Internal error." }, { status: 500 });
     }
   };
+}
+
+/**
+ * Same contract as `route()`, for the Nestnic console: a platform-admin
+ * session instead of an agency one. Kept separate so no handler can be
+ * reached with the wrong kind of session by mistake.
+ */
+export function platformRoute<T>(
+  handler: (admin: PlatformSession, req: Request, ctx: { params: T }) => Promise<Response>
+) {
+  return async (req: Request, ctx: { params: T }): Promise<Response> => {
+    try {
+      checkOrigin(req);
+      const admin = await requirePlatformAdmin();
+      return await handler(admin, req, ctx);
+    } catch (err) {
+      if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: 401 });
+      if (err instanceof ForbiddenError) return NextResponse.json({ error: err.message }, { status: 403 });
+      if (err instanceof ServiceError) return NextResponse.json({ error: err.message }, { status: err.status });
+      console.error("[platform api]", err);
+      return NextResponse.json({ error: "Internal error." }, { status: 500 });
+    }
+  };
+}
+
+/** Route ids are UUIDs; anything else is simply not found (and never reaches a query). */
+export function assertUuid(id: string): string {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    throw new ServiceError("Not found.", 404);
+  }
+  return id;
 }
 
 export function json(data: unknown, status = 200) {

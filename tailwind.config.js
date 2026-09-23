@@ -15,6 +15,8 @@ module.exports = {
           400: "#ff7a45",
           500: "#f26522", // Vertafore orange
           600: "#dc4f14",
+          // Marketing pages only: a mid-step used for link and heading accents.
+          650: "#cf4713",
           700: "#b73c12",
           800: "#933116",
           900: "#772b15",
@@ -30,8 +32,14 @@ module.exports = {
           // subject.
           400: "#8a94a6",
           300: "#a8b0be",
+          // Marketing pages only: the near-black used for hero sections.
+          950: "#0b1020",
         },
         accent: {
+          // Tints used by the marketing pages.
+          50: "#eef4fe",
+          100: "#dbe7fd",
+          300: "#93b4f5",
           500: "#2d6be4", // action blue
           600: "#1f57c3",
         },
@@ -49,6 +57,11 @@ module.exports = {
         },
       },
       fontFamily: {
+        // Marketing pages load these as CSS variables (components/landing/fonts.js);
+        // the dashboard keeps the system stack below and is unaffected.
+        display: ["var(--font-display)", "ui-sans-serif", "system-ui", "sans-serif"],
+        body: ["var(--font-body)", "ui-sans-serif", "system-ui", "sans-serif"],
+        code: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
         sans: ["ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "Roboto", "Helvetica", "Arial", "sans-serif"],
       },
       boxShadow: {

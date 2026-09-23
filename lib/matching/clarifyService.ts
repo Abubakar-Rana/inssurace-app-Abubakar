@@ -92,10 +92,12 @@ export async function askRequester(
   // waiting for a reply that nobody was invited to send.
   try {
     await sendReply({
+      tenantId,
       to: request.fromAddr,
       subject: request.subject ?? "Certificate of insurance request",
       text,
       inReplyTo: request.gmailMessageId,
+      threadId: request.gmailThreadId,
       // So ingestion recognises this as our own output and does not read it
       // back as either a new request or an answer to itself.
       headers: { [AUTO_HEADER]: "clarification" },

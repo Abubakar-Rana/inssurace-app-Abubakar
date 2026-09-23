@@ -36,7 +36,12 @@
     "verify:answer:live": "tsx scripts/verify-answer-live.ts",
     "repair:templates": "tsx scripts/repair-form-templates.mts",
     "shoot:ui": "tsx scripts/shoot-ui.mts",
-    "verify:followup": "tsx scripts/verify-followup.ts"
+    "verify:followup": "tsx scripts/verify-followup.ts",
+    "verify:saas": "tsx scripts/verify-saas.ts",
+    "admin:create": "tsx scripts/create-platform-admin.ts",
+    "nowcerts:sync": "tsx scripts/nowcerts-sync.ts",
+    "verify:saas:db": "tsx scripts/verify-saas-db.ts",
+    "verify:mail-oauth": "tsx scripts/verify-mail-oauth.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.36.4",

@@ -50,21 +50,28 @@ export async function loadAssembleInput(
   tx?: TenantDb
 ): Promise<AssembleInput> {
   const run = async (tx: TenantDb): Promise<AssembleInput> => {
-    // RLS pins every query below to this tenant, so none of them need a manual
-    // tenant filter — and a forgotten one returns nothing rather than leaking.
-    const [client] = await tx.select().from(clients).where(eq(clients.id, opts.clientId));
+    // RLS pins every query below to this tenant. The explicit tenant filters
+    // are belt and braces, and they are NOT decoration: with DB_ENFORCE_RLS
+    // off, the connection user bypasses RLS, and "the default producer" then
+    // meant whichever agency's row came first — one agency's letterhead on
+    // another agency's certificate. Filter here as well, so the document is
+    // right even when the database is not enforcing anything.
+    const [client] = await tx
+      .select()
+      .from(clients)
+      .where(and(eq(clients.id, opts.clientId), eq(clients.tenantId, opts.tenantId)));
     if (!client) throw new Error(`Client ${opts.clientId} not found for this tenant.`);
 
     const [holder] = await tx
       .select()
       .from(certificateHolders)
-      .where(eq(certificateHolders.id, opts.holderId));
+      .where(and(eq(certificateHolders.id, opts.holderId), eq(certificateHolders.tenantId, opts.tenantId)));
     if (!holder) throw new Error(`Certificate holder ${opts.holderId} not found for this tenant.`);
 
     const [producer] = await tx
       .select()
       .from(producers)
-      .where(eq(producers.isDefault, true))
+      .where(and(eq(producers.tenantId, opts.tenantId), eq(producers.isDefault, true)))
       .limit(1);
     if (!producer) throw new Error("No default producer configured for this tenant.");
 
@@ -86,7 +93,9 @@ export async function loadAssembleInput(
       })
       .from(policies)
       .innerJoin(insurers, eq(policies.insurerId, insurers.id))
-      .where(and(eq(policies.clientId, opts.clientId), eq(policies.status, "active")));
+      .where(
+        and(eq(policies.tenantId, opts.tenantId), eq(policies.clientId, opts.clientId), eq(policies.status, "active"))
+      );
 
     const vehicleRows = await tx
       .select({
@@ -99,7 +108,7 @@ export async function loadAssembleInput(
         deductibleColl: vehicles.deductibleColl,
       })
       .from(vehicles)
-      .where(eq(vehicles.clientId, opts.clientId))
+      .where(and(eq(vehicles.tenantId, opts.tenantId), eq(vehicles.clientId, opts.clientId)))
       // Schedule order first, VIN only to break ties: reproducible output that
       // still matches how the agency lists the fleet.
       .orderBy(asc(vehicles.sortOrder), asc(vehicles.vin));

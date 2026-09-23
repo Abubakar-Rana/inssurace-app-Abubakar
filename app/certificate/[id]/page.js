@@ -184,7 +184,7 @@ export default function CertificatePage() {
         <div className="mx-auto max-w-md rounded-2xl bg-white p-8 text-center shadow-card">
           <h2 className="text-lg font-bold text-ink-900">Request not found</h2>
           <p className="mt-1 text-sm text-ink-500">This certificate request no longer exists.</p>
-          <Link href="/" className="mt-4 inline-block rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white">
+          <Link href="/inbox" className="mt-4 inline-block rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white">
             Back to inbox
           </Link>
         </div>
@@ -198,7 +198,7 @@ export default function CertificatePage() {
         <div className="mx-auto max-w-md rounded-2xl bg-white p-8 text-center shadow-card">
           <h2 className="text-lg font-bold text-ink-900">Could not load the certificate</h2>
           <p className="mt-1 text-sm text-ink-500">{error}</p>
-          <Link href="/" className="mt-4 inline-block rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white">
+          <Link href="/inbox" className="mt-4 inline-block rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white">
             Back to inbox
           </Link>
         </div>
@@ -228,7 +228,7 @@ export default function CertificatePage() {
             "this is the thing to do". */}
         <div className="no-print flex h-14 flex-none items-center gap-3.5 border-b border-line px-5">
           <Link
-            href="/"
+            href="/inbox"
             title="Back to the inbox"
             className="flex h-8 w-8 flex-none items-center justify-center rounded-md text-ink-500 transition hover:bg-surface-hover hover:text-ink-900"
           >

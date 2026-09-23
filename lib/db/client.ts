@@ -54,6 +54,14 @@ export async function withTenant<T>(tenantId: string, fn: (tx: TenantDb) => Prom
   return db.transaction(async (tx) => {
     // set_config(..., true) == SET LOCAL: reverts when the transaction ends.
     await tx.execute(sql`select set_config('certflow.tenant_id', ${tenantId}, true)`);
+    // The connection user (e.g. Supabase "postgres") has BYPASSRLS, so the
+    // policies above only bind once we drop to the application role. With
+    // DB_ENFORCE_RLS=1 every tenant transaction runs as certflow_app and the
+    // DATABASE refuses cross-agency rows — not just our WHERE clauses.
+    // SET LOCAL: reverts at commit, so a pooled connection never keeps it.
+    if (process.env.DB_ENFORCE_RLS === "1") {
+      await tx.execute(sql`set local role certflow_app`);
+    }
     return fn(tx);
   });
 }

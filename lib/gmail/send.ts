@@ -19,6 +19,7 @@
 
 import nodemailer from "nodemailer";
 import { gmailConfigFromEnv } from "./inbox";
+import { guardConfig, mailConfigFor } from "@/lib/mail/settings";
 
 export interface Attachment {
   filename: string;
@@ -27,11 +28,19 @@ export interface Attachment {
 }
 
 export interface ReplyMessage {
+  /**
+   * The agency sending. Its own mailbox is used, so the reply comes from the
+   * address the requester wrote to. Omitted only by the dev/test scripts,
+   * which send from the .env mailbox.
+   */
+  tenantId?: string;
   to: string;
   subject: string;
   text: string;
   /** RFC 822 Message-ID of the email being replied to. Enables threading. */
   inReplyTo?: string | null;
+  /** The request's provider thread id, so an OAuth (Gmail API) reply files under it. */
+  threadId?: string | null;
   attachments?: Attachment[];
   /**
    * Extra headers.
@@ -81,7 +90,7 @@ export class DeliveryBlocked extends Error {
  * not lift it. That check is what stops seeded demo data reaching a mailbox,
  * and it costs nothing real — no genuine requester has a .example address.
  */
-export function assertDeliverable(to: string): void {
+export function assertDeliverable(to: string, ownMailbox?: string): void {
   const address = to.trim().toLowerCase();
 
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) {
@@ -102,7 +111,7 @@ export function assertDeliverable(to: string): void {
 
   if (!raw) {
     if (production) return; // real holders, real addresses
-    const owner = process.env.GMAIL_USER?.trim().toLowerCase();
+    const owner = (ownMailbox ?? process.env.GMAIL_USER)?.trim().toLowerCase();
     if (owner && address === owner) return;
     throw new DeliveryBlocked(
       `Refusing to email ${to}: outside production, delivery is limited to the ` +
@@ -136,7 +145,9 @@ function bracket(id: string): string {
 }
 
 export async function sendReply(message: ReplyMessage): Promise<SentMessage> {
-  assertDeliverable(message.to);
+  const config = message.tenantId ? await mailConfigFor(message.tenantId) : gmailConfigFromEnv();
+  const from = config.fromAddress ?? config.user;
+  assertDeliverable(message.to, from);
 
   // An empty message is always a bug upstream, never an intention. Sending it
   // anyway spends the recipient's attention on nothing and, worse, makes the
@@ -148,12 +159,34 @@ export async function sendReply(message: ReplyMessage): Promise<SentMessage> {
     );
   }
 
-  const config = gmailConfigFromEnv();
+  // OAuth inbox: send through the provider's API as the connected account.
+  if (config.oauth) {
+    const { sendViaApi } = await import("@/lib/mail/api");
+    const inReplyTo = message.inReplyTo ? bracket(message.inReplyTo) : undefined;
+    const sent = await sendViaApi(config, {
+      from,
+      to: message.to,
+      subject: /^re:/i.test(message.subject) ? message.subject : `Re: ${message.subject}`,
+      text: message.text,
+      inReplyTo,
+      references: inReplyTo ? [inReplyTo] : undefined,
+      headers: message.headers,
+      attachments: message.attachments,
+      threadId: message.threadId,
+    });
+    return { messageId: sent.messageId, accepted: [message.to], rejected: [] };
+  }
 
+  await guardConfig(config);
+
+  const port = config.smtpPort ?? Number(process.env.GMAIL_SMTP_PORT ?? 465);
   const transport = nodemailer.createTransport({
-    host: process.env.GMAIL_SMTP_HOST ?? "smtp.gmail.com",
-    port: Number(process.env.GMAIL_SMTP_PORT ?? 465),
-    secure: true,
+    host: config.smtpHost ?? process.env.GMAIL_SMTP_HOST ?? "smtp.gmail.com",
+    port,
+    // 465 is TLS from the first byte; 587 upgrades with STARTTLS, which is
+    // REQUIRED rather than attempted, so a downgrade cannot send in the clear.
+    secure: port === 465,
+    requireTLS: true,
     auth: { user: config.user, pass: config.appPassword },
   });
 
@@ -161,7 +194,7 @@ export async function sendReply(message: ReplyMessage): Promise<SentMessage> {
     const inReplyTo = message.inReplyTo ? bracket(message.inReplyTo) : undefined;
 
     const info = await transport.sendMail({
-      from: config.user,
+      from,
       to: message.to,
       // "Re:" is not what threads the message — the headers below are — but
       // clients that group by subject need it, and humans expect it.

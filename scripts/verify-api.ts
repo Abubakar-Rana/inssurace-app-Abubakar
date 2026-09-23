@@ -58,6 +58,9 @@ async function scriptSession(): Promise<Session> {
     email: user.email,
     name: user.name,
     role: user.role,
+    tenantName: tenant.name,
+    mustChangePassword: false,
+    canManageUsers: false,
   };
 }
 

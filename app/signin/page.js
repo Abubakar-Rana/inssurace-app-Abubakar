@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Icon } from "@/components/icons";
+import { Button, Field, Input, Notice } from "@/components/Form";
 
 // useSearchParams opts the subtree out of prerendering, so it needs a boundary.
 export default function SignInPage() {
@@ -17,22 +18,52 @@ function SignIn() {
   const router = useRouter();
   const params = useSearchParams();
   const [oidc, setOidc] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [dev, setDev] = useState(false);
+  const [busy, setBusy] = useState(null);
   const [error, setError] = useState(params.get("error"));
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   // Already signed in? Skip the page.
   useEffect(() => {
     fetch("/api/auth/session")
       .then(async (r) => {
         const body = await r.json();
-        if (r.ok) router.replace("/");
-        else setOidc(Boolean(body.oidc));
+        if (r.ok) router.replace(body.user?.mustChangePassword ? "/account/password" : "/inbox");
+        else {
+          setOidc(Boolean(body.oidc));
+          setDev(Boolean(body.dev));
+        }
       })
       .catch(() => {});
   }, [router]);
 
-  async function signIn() {
-    setBusy(true);
+  async function withPassword(e) {
+    e.preventDefault();
+    setBusy("password");
+    setError(null);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Sign-in failed.");
+      // A full page load, not router.replace: StoreProvider lives in the root
+      // layout, so a client-side navigation would not remount it and the inbox
+      // would render with the empty state it fetched while signed out.
+      window.location.href = body.mustChangePassword ? "/account/password" : "/inbox";
+    } catch (err) {
+      setError(err.message);
+      setBusy(null);
+    }
+  }
+
+  // The identity-provider button and the development fallback share the
+  // original endpoint, which decides between them.
+  async function withProvider() {
+    setBusy("provider");
     setError(null);
     try {
       const res = await fetch("/api/auth/signin", {
@@ -42,13 +73,10 @@ function SignIn() {
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Sign-in failed.");
-      // A full page load, not router.replace: StoreProvider lives in the root
-      // layout, so a client-side navigation would not remount it and the inbox
-      // would render with the empty state it fetched while signed out.
-      window.location.href = body.redirect || "/";
+      window.location.href = body.redirect || "/inbox";
     } catch (err) {
       setError(err.message);
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -66,21 +94,55 @@ function SignIn() {
         </div>
 
         {error && (
-          <div className="mb-4 rounded-xl bg-red-50 px-3.5 py-2.5 text-[13px] text-red-700">{error}</div>
+          <div className="mb-4">
+            <Notice tone="error">{error}</Notice>
+          </div>
         )}
 
-        <button
-          onClick={signIn}
-          disabled={busy}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 active:scale-[0.98] disabled:opacity-50"
-        >
-          {busy ? "Signing in…" : oidc ? "Sign in with your work account" : "Sign in (development)"}
-        </button>
+        <form onSubmit={withPassword} className="space-y-3.5">
+          <Field label="Email">
+            <Input
+              type="email"
+              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoFocus
+            />
+          </Field>
+          <Field label="Password">
+            <Input
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </Field>
+          <Button type="submit" busy={busy === "password"} disabled={Boolean(busy)} className="w-full py-2.5">
+            Sign in
+          </Button>
+        </form>
 
-        <p className="mt-4 text-[12px] leading-snug text-ink-500">
-          {oidc
-            ? "Authentication is handled by your organisation's identity provider, including multi-factor. CertFlow never sees your password."
-            : "No identity provider is configured, so this signs in as the seeded user. Set OIDC_ISSUER and related variables to enable real sign-in — the development path is refused in production."}
+        {(oidc || dev) && (
+          <>
+            <div className="my-5 flex items-center gap-3 text-[11.5px] text-ink-400">
+              <span className="h-px flex-1 bg-line" /> or <span className="h-px flex-1 bg-line" />
+            </div>
+            <Button
+              variant="secondary"
+              onClick={withProvider}
+              busy={busy === "provider"}
+              disabled={Boolean(busy)}
+              className="w-full py-2.5"
+            >
+              {oidc ? "Sign in with Google / Microsoft" : "Sign in (development)"}
+            </Button>
+          </>
+        )}
+
+        <p className="mt-5 text-[12px] leading-snug text-ink-500">
+          Accounts are created by your administrator. Forgot your password? Ask them to reset it.
         </p>
       </div>
     </main>

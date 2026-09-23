@@ -33,7 +33,9 @@ import {
   findRequestInThread,
   type AnswerOutcome,
 } from "@/lib/matching/clarifyService";
-import { fetchMailbox, gmailConfigFromEnv, type FetchOptions, type InboundEmail } from "./inbox";
+import { fetchMailbox, type FetchOptions, type InboundEmail } from "./inbox";
+import { mailConfigFor } from "@/lib/mail/settings";
+import { maybeAutoSend } from "@/lib/certificate/autoSend";
 
 export interface IngestResult {
   /** Messages read from the mailbox. */
@@ -292,7 +294,8 @@ export async function ingestGmail(
   // restart; the first fetch after a restart falls back to the date window,
   // which is also what catches anything that arrived while we were down.
   const mark = watermark.get(tenantId);
-  const fetched = await fetchMailbox(gmailConfigFromEnv(), {
+  // This agency's own mailbox — never another's. See lib/mail/settings.ts.
+  const fetched = await fetchMailbox(await mailConfigFor(tenantId), {
     ...options,
     sinceUid: mark?.uid,
   });
@@ -348,8 +351,11 @@ export async function ingestGmail(
     if (reply) {
       if (reply.kind === "answered") {
         result.answered++;
-        if (reply.outcome.resolved) result.matched++;
-        else result.needsMatch++;
+        if (reply.outcome.resolved) {
+          result.matched++;
+          // No-op unless this agency turned auto-send on. See lib/certificate/autoSend.ts.
+          await maybeAutoSend(tenantId, reply.requestId);
+        } else result.needsMatch++;
       } else if (reply.kind === "duplicate") {
         result.duplicates++;
       } else {
@@ -361,7 +367,10 @@ export async function ingestGmail(
         if (reply.kind === "newInThread") result.inserted++;
         if (reply.outcome.decision === "matched") result.matched++;
         else result.needsMatch++;
-        if (reply.outcome.certificateNumber) result.generated++;
+        if (reply.outcome.certificateNumber) {
+          result.generated++;
+          await maybeAutoSend(tenantId, reply.requestId);
+        }
 
         result.requests.push({
           id: reply.requestId,
@@ -402,7 +411,10 @@ export async function ingestGmail(
     );
     if (outcome.decision === "matched") result.matched++;
     else result.needsMatch++;
-    if (outcome.certificateNumber) result.generated++;
+    if (outcome.certificateNumber) {
+      result.generated++;
+      await maybeAutoSend(tenantId, requestId);
+    }
     if (outcome.asked) result.clarificationsSent++;
 
     result.requests.push({
@@ -540,7 +552,7 @@ type PipelineOutcome = {
 
 type ReplyHandling =
   /** Answered the question we asked about which insured was meant. */
-  | { kind: "answered"; outcome: AnswerOutcome }
+  | { kind: "answered"; requestId: string; outcome: AnswerOutcome }
   /** Folded into a request that was still open, and re-drafted. */
   | { kind: "amended"; requestId: string; subject: string | null; outcome: PipelineOutcome }
   /** A fresh ask in a thread whose earlier request was already finished. */
@@ -577,7 +589,7 @@ async function handleIfReply(
   if (!related) return null;
 
   if (related.status === "awaitingRequester") {
-    return { kind: "answered", outcome: await applyAnswer(tenantId, related, email.body) };
+    return { kind: "answered", requestId: related.id, outcome: await applyAnswer(tenantId, related, email.body) };
   }
 
   /**

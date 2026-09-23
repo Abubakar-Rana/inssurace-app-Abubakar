@@ -51,6 +51,9 @@ async function main() {
     email: user.email,
     name: user.name,
     role: user.role,
+    tenantName: tenant.name,
+    mustChangePassword: false,
+    canManageUsers: false,
   };
 
   // ---- address rules, no database involved ----

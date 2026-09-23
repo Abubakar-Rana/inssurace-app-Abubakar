@@ -58,7 +58,7 @@ export default function CertificatesPage() {
         {rows?.length === 0 && (
           <p className="mt-6 rounded-2xl border border-dashed border-ink-900/10 bg-white/60 px-5 py-8 text-center text-sm text-ink-500">
             Nothing issued yet. Generate one from the{" "}
-            <Link href="/" className="font-medium text-accent-600 hover:underline">
+            <Link href="/inbox" className="font-medium text-accent-600 hover:underline">
               request inbox
             </Link>
             .

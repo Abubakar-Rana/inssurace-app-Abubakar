@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { withTenant } from "@/lib/db/client";
 import { audit } from "@/lib/audit";
-import { getSession } from "@/lib/auth/session";
+import { devSignInAllowed, getSession } from "@/lib/auth/session";
 import { isConfigured } from "@/lib/auth/oidc";
 import { cookieOptions, SESSION_COOKIE } from "@/lib/auth/cookie";
 
@@ -15,7 +15,10 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const session = await getSession();
   if (!session) {
-    return NextResponse.json({ user: null, oidc: isConfigured() }, { status: 401 });
+    return NextResponse.json(
+      { user: null, oidc: isConfigured(), dev: !isConfigured() && devSignInAllowed() },
+      { status: 401 }
+    );
   }
   return NextResponse.json({
     user: {
@@ -23,6 +26,9 @@ export async function GET() {
       name: session.name,
       role: session.role,
       tenant: session.tenantSlug,
+      tenantName: session.tenantName,
+      mustChangePassword: session.mustChangePassword,
+      canManageUsers: session.canManageUsers,
     },
   });
 }
