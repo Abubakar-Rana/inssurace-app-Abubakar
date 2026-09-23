@@ -128,6 +128,13 @@ export function readClarification(text: string, candidates: Candidate[]): Clarif
  * make every reply look ambiguous — or worse, pick up the example numbers from
  * the message we sent.
  */
+export function stripOurExamples(text: string): string {
+  return stripQuotedReply(text ?? "")
+    // The example numbers from our own message, should any survive the cut.
+    .replace(/\(for example:[^)]*\)/gi, " ")
+    .replace(/^\s*-\s*the (?:carrier's|company's)[^\n]*$/gim, " ");
+}
+
 function stripQuotedReply(text: string): string {
   const cut = text.search(
     /^\s*(?:>|on .+ wrote:|-{3,}\s*original message|_{5,}|from:\s)/im

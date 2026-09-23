@@ -80,7 +80,7 @@ export default function SettingsPage() {
             </div>
             {tab === "agency" && <AgencyTab producer={data.producer} onSaved={load} />}
             {tab === "email" && <EmailTab mail={data.mail} onSaved={load} />}
-            {tab === "data" && <DataTab nowcerts={data.nowcerts} onSaved={load} />}
+            {tab === "data" && <DataTab nowcerts={data.nowcerts} demo={data.demo} onSaved={load} />}
             {tab === "automation" && <AutomationTab agency={data.agency} onSaved={load} />}
             {tab === "users" && <UsersTab canManage={data.canManageUsers} />}
           </>
@@ -454,7 +454,7 @@ function AppPasswordForm({ mail, onSaved }) {
 
 // ---------------------------------------------------------------- data source
 
-function DataTab({ nowcerts, onSaved }) {
+function DataTab({ nowcerts, demo, onSaved }) {
   const [form, setForm] = useState({ username: nowcerts.username, password: "", syncIntervalMinutes: nowcerts.syncIntervalMinutes });
   const { busy, notice, run } = useAction();
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
@@ -488,6 +488,8 @@ function DataTab({ nowcerts, onSaved }) {
         </div>
         {!nowcerts.configured && <p className="text-[12px] text-ink-500">Connect NowCerts below to enable it.</p>}
       </Section>
+
+      <DemoDataCard demo={demo} onSaved={onSaved} />
 
       <Section title="NowCerts connection" description="Use a NowCerts API user. CertFlow only reads from NowCerts; it never changes anything there.">
         {nowcerts.configured && (
@@ -561,6 +563,66 @@ function DataTab({ nowcerts, onSaved }) {
         </div>
       </Section>
     </div>
+  );
+}
+
+/**
+ * The demonstration clients and policies every agency starts with, so the
+ * product can be shown working before real data exists. They are never touched
+ * by a NowCerts sync, and removing them cannot affect real records.
+ */
+function DemoDataCard({ demo, onSaved }) {
+  const { busy, notice, run } = useAction();
+  if (!demo) return null;
+
+  return (
+    <Section
+      title="Demonstration data"
+      description="Sample trucking clients with policies and vehicles, so you can watch a request turn into a finished certificate before your real data is connected."
+    >
+      <Notice tone={demo.loaded ? "info" : "info"}>
+        {demo.loaded
+          ? `Loaded: ${demo.clients} sample client${demo.clients === 1 ? "" : "s"}, ${demo.policies} policies, ${demo.vehicles} vehicles. They are clearly fictional and are never sent anywhere on their own.`
+          : "Not loaded. Your certificates will be built only from your own data."}
+      </Notice>
+      {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant={demo.loaded ? "secondary" : "primary"}
+          busy={busy === "load"}
+          disabled={Boolean(busy)}
+          onClick={() =>
+            run(
+              "load",
+              () => call("/api/settings/demo-data", { method: "POST", body: { action: "load" } }),
+              (r) => `Sample data ready: ${r.demo.clients} clients, ${r.demo.policies} policies, ${r.demo.vehicles} vehicles.`
+            ).then((r) => r && onSaved())
+          }
+        >
+          {demo.loaded ? "Reload sample data" : "Load sample data"}
+        </Button>
+        {demo.loaded && (
+          <Button
+            variant="danger"
+            busy={busy === "remove"}
+            disabled={Boolean(busy)}
+            onClick={() =>
+              confirm("Remove the sample clients and policies? Your own data is not affected.") &&
+              run(
+                "remove",
+                () => call("/api/settings/demo-data", { method: "POST", body: { action: "remove" } }),
+                (r) =>
+                  r.keptForCertificates
+                    ? `Removed. ${r.keptForCertificates} sample client(s) were kept because a certificate refers to them, but they no longer match new requests.`
+                    : "Sample data removed."
+              ).then((r) => r && onSaved())
+            }
+          >
+            Remove sample data
+          </Button>
+        )}
+      </div>
+    </Section>
   );
 }
 

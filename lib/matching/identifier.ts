@@ -51,7 +51,7 @@ import { clients } from "@/db/schema";
  * A full stop IS allowed as part of an abbreviation ("No.", "num."), because
  * that is a real way to write it and cannot be a sentence boundary.
  */
-const COMPETING = String.raw`policy|policies|invoice|reference|ref|phone|tel|fax|account|acct|order|load|pro|zip|suite|ste|unit|vin`;
+export const COMPETING = String.raw`policy|policies|invoice|reference|ref|phone|tel|fax|account|acct|order|load|pro|zip|suite|ste|unit|vin`;
 
 const GAP = String.raw`(?:(?!\b(?:${COMPETING})\b)[^\d\n.!?;:]|:(?!\d)|\b(?:nos?|num|number)\b\.)`;
 

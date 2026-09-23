@@ -562,6 +562,39 @@ export const interpretations = pgTable("interpretations", {
 });
 
 /**
+ * One reading taken by a language model (lib/llm/*).
+ *
+ * Evidence, not content: which reader ran, in which mode, what the patterns
+ * said, and whether the model's answer was used, agreed, ignored or refused.
+ * The email text is never copied here, so the L6 purge clock still holds — and
+ * these rows carry their own `purgeAfter` on the same 30-day schedule.
+ */
+export const llmReadings = pgTable(
+  "llm_readings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** clarify | extract | classify | holder | vin */
+    reader: text("reader").notNull(),
+    /** shadow | live */
+    mode: text("mode").notNull(),
+    requestId: uuid("request_id").references(() => coiRequests.id, { onDelete: "cascade" }),
+    messageId: text("message_id"),
+    /** What the pattern reader said, for comparison. */
+    pattern: text("pattern").notNull(),
+    model: text("model").notNull(),
+    /** used | agreed | not used | refused */
+    outcome: text("outcome").notNull(),
+    note: text("note"),
+    purgeAfter: timestamp("purge_after", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ tenantIdx: index("llm_readings_tenant_idx").on(t.tenantId, t.createdAt) })
+);
+
+/**
  * An issued certificate.
  *
  * `snapshot` is the complete certificate object frozen at approval. Issued

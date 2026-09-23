@@ -13,7 +13,11 @@
  * it; it can never mean a certificate quietly states coverage that does not
  * exist.
  *
- * Swapping the extractor for an LLM changes only the first line of `interpret`.
+ * The LLM reader (lib/llm/insured.ts) plugs in at exactly that first line. It
+ * may only propose NAMES and federal numbers that appear verbatim in the email
+ * — its own guards enforce that — and every one of them still has to resolve
+ * against the agency's own client list before it means anything. So the model
+ * widens what can be READ; it cannot widen what can be PRINTED.
  */
 
 import { eq } from "drizzle-orm";
@@ -22,6 +26,11 @@ import { coiRequests } from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { extractInsuredNames, type EmailInput, type Extraction } from "./extract";
 import { resolveClient, type Candidate, type MatchDecision } from "./resolve";
+import { resolveByIdentifier, type Identifiers } from "./identifier";
+import { llmMode } from "@/lib/llm/config";
+import { llmModel } from "@/lib/llm/config";
+import { insuredText, readInsuredWithLlm } from "@/lib/llm/insured";
+import { recordReading, withReadingContext, type ReadingOutcome } from "@/lib/llm/readingLog";
 
 export interface Interpretation {
   decision: MatchDecision;
@@ -36,13 +45,93 @@ export interface Interpretation {
   reason: string;
 }
 
+/**
+ * Ask the model who the certificate is for, when LLM_READING enables it.
+ *
+ * Never throws and never blocks the decision: a refusal, a timeout or a missing
+ * key leaves the pattern reading exactly as it was. In shadow mode the answer
+ * is recorded and then ignored.
+ */
+async function readWithModel(
+  email: EmailInput,
+  patternNames: Extraction[]
+): Promise<{ names: Extraction[]; identifiers: Identifiers; record: () => void }> {
+  const mode = llmMode("extract");
+  const patternSummary = patternNames.map((n) => n.name).join(", ") || "(no name)";
+  const nothing = { names: [], identifiers: {} as Identifiers, record: () => {} };
+  if (mode === "off") return nothing;
+
+  const reading = await readInsuredWithLlm(insuredText(email));
+  if (!reading.reached) return nothing; // the model was not reached; heuristic stands
+
+  if (!reading.verdict.ok) {
+    const reason = reading.verdict.reason;
+    return {
+      ...nothing,
+      record: () =>
+        recordReading({ reader: "extract", mode, pattern: patternSummary, model: llmModel(), outcome: "refused", note: reason }),
+    };
+  }
+
+  const { names, identifiers, dropped } = reading.verdict;
+  const same =
+    names.length === patternNames.length &&
+    names.every((n) => patternNames.some((p) => p.name.toLowerCase() === n.name.toLowerCase()));
+
+  return {
+    // Shadow mode reads, records and changes nothing.
+    names: mode === "live" ? names : [],
+    identifiers: mode === "live" ? identifiers : {},
+    record: () =>
+      recordReading({
+        reader: "extract",
+        mode,
+        pattern: patternSummary,
+        model: llmModel(),
+        outcome: (same ? "agreed" : mode === "live" ? "used" : "not used") as ReadingOutcome,
+        note: [names.map((n) => n.name).join(", ") || "(no name)", dropped.length ? `dropped: ${dropped.join("; ")}` : ""]
+          .filter(Boolean)
+          .join(" | "),
+      }),
+  };
+}
+
 /** Pure: text in, decision out. No writes — see `interpretRequest` for those. */
 export async function interpret(
   tenantId: string,
   email: EmailInput,
   tx?: TenantDb
 ): Promise<Interpretation> {
-  const extracted = extractInsuredNames(email);
+  const patternNames = extractInsuredNames(email);
+  const model = await readWithModel(email, patternNames);
+  model.record();
+
+  /**
+   * A federal number beats every name, from either reader: names are not
+   * unique and USDOT/MC numbers are. It matches one client exactly or not at
+   * all — there is no fuzzy matching on an identifier.
+   */
+  if (model.identifiers.dot || model.identifiers.mc) {
+    const byNumber = await resolveByIdentifier(tenantId, model.identifiers, tx);
+    if (byNumber) {
+      return {
+        decision: "matched",
+        clientId: byNumber.clientId,
+        clientName: byNumber.legalName,
+        usedName: byNumber.legalName,
+        extracted: [...model.names, ...patternNames],
+        candidates: [],
+        reason: `The email gives a ${byNumber.matchedOn === "dot" ? "USDOT" : "MC"} number, which belongs to ${byNumber.legalName}.`,
+      };
+    }
+  }
+
+  // The model's names first: they are read from the whole sentence rather than
+  // a fixed phrasing, and each one was checked to appear in the email verbatim.
+  const extracted: Extraction[] = [...model.names];
+  for (const candidate of patternNames) {
+    if (!extracted.some((e) => e.name.toLowerCase() === candidate.name.toLowerCase())) extracted.push(candidate);
+  }
 
   if (!extracted.length) {
     return {
@@ -119,10 +208,11 @@ export async function interpretRequest(
     const [request] = await tx.select().from(coiRequests).where(eq(coiRequests.id, requestId));
     if (!request) throw new Error(`Request ${requestId} not found for this tenant.`);
 
-    const result = await interpret(
-      tenantId,
-      { subject: request.subject, body: request.bodyText },
-      tx
+    // Ids for any reading taken below, so a disagreement can be traced back to
+    // the request and the message it came from.
+    const result = await withReadingContext(
+      { tenantId, requestId, messageId: request.gmailMessageId },
+      () => interpret(tenantId, { subject: request.subject, body: request.bodyText }, tx)
     );
 
     /**
@@ -166,7 +256,7 @@ export async function interpretRequest(
         clientId,
         usedName: result.usedName,
         keptEarlierClient: !result.clientId && Boolean(request.clientId),
-        method: "heuristic",
+        method: llmMode("extract") === "live" ? "heuristic + model" : "heuristic",
       },
     });
 

@@ -41,9 +41,11 @@
     "admin:create": "tsx scripts/create-platform-admin.ts",
     "nowcerts:sync": "tsx scripts/nowcerts-sync.ts",
     "verify:saas:db": "tsx scripts/verify-saas-db.ts",
-    "verify:mail-oauth": "tsx scripts/verify-mail-oauth.ts"
+    "verify:mail-oauth": "tsx scripts/verify-mail-oauth.ts",
+    "demo:load": "tsx scripts/demo-data.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "drizzle-orm": "^0.36.4",
     "imapflow": "^1.7.1",
     "mailparser": "^3.9.15",

@@ -35,6 +35,7 @@ import {
 } from "@/lib/matching/clarifyService";
 import { fetchMailbox, type FetchOptions, type InboundEmail } from "./inbox";
 import { mailConfigFor } from "@/lib/mail/settings";
+import { FOLLOW_UP_SEPARATOR } from "@/lib/llm/messages";
 import { maybeAutoSend } from "@/lib/certificate/autoSend";
 
 export interface IngestResult {

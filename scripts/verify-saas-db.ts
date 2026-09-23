@@ -10,7 +10,7 @@
  */
 
 import "@/lib/env";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, withTenant } from "@/lib/db/client";
 import { clients, tenantMailSettings, tenants, users } from "@/db/schema";
 import { createAgency, createUser, resetPassword, updateUser, type Actor } from "@/lib/admin/accounts";
@@ -23,6 +23,8 @@ import { mapCoverages, mapInsured, mapPolicyHeader, mapVehicle } from "@/lib/now
 import { loadCertificate } from "@/lib/certificate/load";
 import { certificateHolders, policies, producers, vehicles } from "@/db/schema";
 import { saveOAuthConnection, disconnectMail } from "@/lib/mail/settings";
+import { demoDataStatus, loadDemoData, removeDemoData, DEMO_SOURCE } from "@/lib/admin/demoData";
+import { resolveClient } from "@/lib/matching/resolve";
 import { accessTokenFor, forgetAccessToken, setHttpForTests } from "@/lib/mail/oauth";
 
 let failures = 0;
@@ -195,9 +197,9 @@ async function main() {
     [{ databaseId: "nc-v1", vin: "1XKYDP9X4NJ441201", year: 2022, make: "KENWORTH", model: "T680", policyDatabaseId: "nc-p1" }]
   ));
   const counts = await withTenant(a.tenantId, async (tx) => ({
-    clients: (await tx.select().from(clients)).length,
-    policies: (await tx.select().from(policies)).length,
-    vehicles: (await tx.select().from(vehicles)).length,
+    clients: (await tx.select().from(clients)).filter((r) => r.source !== DEMO_SOURCE).length,
+    policies: (await tx.select().from(policies)).filter((r) => r.source !== DEMO_SOURCE).length,
+    vehicles: (await tx.select().from(vehicles)).filter((r) => r.source !== DEMO_SOURCE).length,
   }));
   check("re-running the sync is idempotent (no duplicates)", again.clients === 1 && counts.clients === 2 && counts.policies === 2 && counts.vehicles === 1, JSON.stringify(counts));
 
@@ -218,14 +220,47 @@ async function main() {
   // Policy lapses in NowCerts -> retired here, client stops matching; manual client untouched.
   const lapsed = await writeAll(a.tenantId, fixture([], {}, []));
   const after = await withTenant(a.tenantId, async (tx) => ({
-    policies: await tx.select({ status: policies.status }).from(policies),
+    policies: (await tx.select({ status: policies.status, source: policies.source }).from(policies)).filter((p) => p.source !== DEMO_SOURCE),
     clients: await tx.select({ name: clients.legalName, status: clients.status, source: clients.source }).from(clients),
-    vehicles: (await tx.select().from(vehicles)).length,
+    vehicles: (await tx.select().from(vehicles)).filter((v) => v.source !== DEMO_SOURCE).length,
   }));
   check("vanished policies retired, not deleted", lapsed.retiredPolicies === 2 && after.policies.every((p) => p.status === "inactive"));
   check("vanished NowCerts client set inactive", after.clients.find((c) => c.source === "nowcerts")?.status === "inactive");
   check("hand-entered client never touched by sync", after.clients.find((c) => c.source === "certflow")?.status === "active");
   check("vehicles that left the schedule removed", after.vehicles === 0);
+
+  // ---------------------------------------------------------------- demo data
+  const demo = await demoDataStatus(a.tenantId);
+  check("a new agency starts with demonstration data", demo.loaded && demo.clients >= 3 && demo.vehicles > 0, JSON.stringify(demo));
+
+  const resolved = await resolveClient(a.tenantId, "Smartway Solutions");
+  check("a request naming a demo carrier resolves to it", resolved.decision === "matched" && /Smart Way Solutions/i.test(resolved.client?.legalName ?? ""), resolved.decision);
+
+  const demoClient = await withTenant(a.tenantId, async (tx) => {
+    const [row] = await tx.select().from(clients).where(and(eq(clients.source, DEMO_SOURCE), eq(clients.legalName, "Smart Way Solutions Inc")));
+    return row;
+  });
+  const holderForDemo = await withTenant(a.tenantId, async (tx) => {
+    const [h] = await tx.insert(certificateHolders).values({ tenantId: a.tenantId, name: "Demo Broker LLC", addressLines: "1 Broker St" }).returning();
+    return h.id;
+  });
+  const demoCert = await loadCertificate({
+    tenantId: a.tenantId, clientId: demoClient.id, holderId: holderForDemo, certificateNumber: "COI-DEMO-1",
+    issueDate: "09/23/2026", authorizedRep: "Verify", acordEdition: "2016/03",
+  });
+  check("demo data produces a complete certificate", demoCert.coverages.auto.enabled && demoCert.coverages.auto.limits.combinedSingle === "1,000,000" && demoCert.insured.name === "Smart Way Solutions Inc");
+  check("demo fleet overflows to an ACORD 101 like a real one", Boolean(demoCert.acord101));
+
+  const reloaded = await loadDemoData(a.tenantId);
+  check("reloading demo data does not duplicate it", reloaded.clients === demo.clients && reloaded.policies === demo.policies, JSON.stringify(reloaded));
+
+  // A hand-entered client must survive the demo set being removed.
+  await withTenant(a.tenantId, (tx) => tx.insert(clients).values({ tenantId: a.tenantId, legalName: `Real Client ${stamp}`, addressLines: "x" }));
+  const removal = await removeDemoData(a.tenantId);
+  const afterRemoval = await withTenant(a.tenantId, (tx) => tx.select().from(clients));
+  check("removing demo data leaves real clients alone", afterRemoval.some((c) => c.legalName === `Real Client ${stamp}` && c.status === "active"));
+  check("demo rows are gone (or kept only where a certificate needs them)", (await demoDataStatus(a.tenantId)).policies === 0, JSON.stringify(removal));
+  await loadDemoData(a.tenantId); // restore for the checks that follow
 
   // ---------------------------------------------------------------- OAuth inbox
   process.env.MICROSOFT_OAUTH_CLIENT_ID ||= "ms-client";

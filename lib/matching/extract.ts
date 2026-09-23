@@ -27,7 +27,8 @@ export type ExtractionSource =
   | "label" // "Insured: X"
   | "coiFor" // "certificate of insurance for X"
   | "subjectTag" // "COI request — X"
-  | "onBehalfOf"; // "on behalf of X"
+  | "onBehalfOf" // "on behalf of X"
+  | "model"; // read by an LLM (lib/llm/insured.ts) rather than a pattern
 
 export interface Extraction {
   name: string;
@@ -44,6 +45,7 @@ const WEIGHTS: Record<ExtractionSource, number> = {
   coiFor: 0.9,
   onBehalfOf: 0.75,
   subjectTag: 0.7,
+  model: 0.95,
 };
 
 /**
@@ -144,17 +146,38 @@ export interface EmailInput {
  * An empty result is a legitimate outcome, not a failure: it means the email
  * never said who the certificate was for in a form we recognise.
  */
+/**
+ * The body with the signature block cut off.
+ *
+ * Signature blocks are where the SENDER's company lives, and the sender is the
+ * certificate HOLDER, never the insured. Cutting them off removes the single
+ * richest source of wrong answers — and it is the mirror image of
+ * lib/matching/holder.ts, which reads only what is below this line.
+ */
+export function bodyAboveSignature(body: string): string {
+  return body.split(
+    /^\s*(?:--+|thanks[,!.]?|thank you[,!.]?|regards[,!.]?|best regards[,!.]?|sincerely[,!.]?)\s*$/imu
+  )[0];
+}
+
+/**
+ * Everything a reader of a FIRST email may look at, as one string: the subject
+ * and the body above the sign-off.
+ *
+ * Exported because the pattern reader, the LLM reader (lib/llm/insured.ts) and
+ * its guards must all judge the same words — a model shown more text than the
+ * guard checks against is a hole in the guard.
+ */
+export function requestText(email: EmailInput): string {
+  return [email.subject ?? "", email.body ? bodyAboveSignature(email.body) : ""]
+    .filter((part) => part.trim())
+    .join("\n\n");
+}
+
 export function extractInsuredNames(email: EmailInput): Extraction[] {
   const sections: { text: string; label: string }[] = [];
   if (email.subject) sections.push({ text: email.subject, label: "subject" });
-  if (email.body) {
-    // Signature blocks are where the SENDER's company lives. Cutting them off
-    // removes the single richest source of wrong answers.
-    const body = email.body.split(
-      /^\s*(?:--+|thanks[,!.]?|thank you[,!.]?|regards[,!.]?|best regards[,!.]?|sincerely[,!.]?)\s*$/imu
-    )[0];
-    sections.push({ text: body, label: "body" });
-  }
+  if (email.body) sections.push({ text: bodyAboveSignature(email.body), label: "body" });
 
   const found: Extraction[] = [];
   const seen = new Set<string>();

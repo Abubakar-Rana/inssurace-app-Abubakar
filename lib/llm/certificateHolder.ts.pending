@@ -1,0 +1,459 @@
+/**
+ * Reading the certificate holder with a language model.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS NEEDS STRICTER GUARDS THAN THE CLARIFY READER
+ *
+ * The clarify reader returns a company that must BE one of the agency's own
+ * candidates, and numbers that go to an exact database lookup. Nothing it says
+ * reaches the certificate without the agency's records vouching for it.
+ *
+ * The holder has no such record. The holder is whoever the requester says it
+ * is, and the name is printed straight onto the certificate. A model that
+ * helpfully completes "Keystone" into "Keystone Brokerage LLC", or reads the
+ * requester's signature as the holder, produces a document addressed to a party
+ * nobody named — and nothing on it looks guessed.
+ *
+ * So the rule here is absolute: THE MODEL MAY FIND A HOLDER. IT MAY NEVER
+ * INVENT, COMPLETE OR TIDY ONE UP.
+ *
+ * ---------------------------------------------------------------------------
+ * THE GUARDS, ALL DETERMINISTIC
+ *
+ *   VERBATIM      the name, the email and every address line must appear word
+ *                 for word in the requester's own words — whitespace and case
+ *                 normalised, nothing else. No comma added, no suffix
+ *                 completed, no word spliced out of a longer one or out of an
+ *                 email address. And what is PRINTED is the requester's own
+ *                 spelling, taken from the matched text, never the model's
+ *                 rendering of it.
+ *   QUOTED MAIL   anything below "On … wrote:" (on its own line or flattened
+ *                 into a paragraph), "-----Original Message-----", an Outlook
+ *                 rule, a "From:" block after the reply, and any line beginning
+ *                 ">" is not the requester's words.
+ *   OUR QUESTION  the fill-in lines of HOLDER_QUESTION_LINES are ours. A value
+ *                 that is, or contains, one of those labels is refused.
+ *   SIGNATURE     a name, email or address found only in the signature block
+ *                 is the sender's own letterhead.
+ *   NOT A NAME    "us", "we", "same as last time" — the list in holder.ts.
+ *   OTHER HOLDERS a policy holder, lien holder or account holder names the
+ *                 insured or a third party, never the certificate holder.
+ *   OWN ADDRESS   "my email" / "our email" is the requester's own address.
+ *   FOLLOW-UPS    for messages joined by the follow-up separator, the LATEST
+ *                 message that names a holder wins; an email or address counts
+ *                 only from that message or a later one; and a later message in
+ *                 which the pattern can read a DIFFERENT holder refuses the
+ *                 answer outright.
+ *
+ * Anything failing ANY guard drops the WHOLE answer. A holder assembled from the
+ * parts that survived is exactly the cross-pairing the guards exist to prevent.
+ *
+ * What deterministic code cannot see — a model pairing two companies named in
+ * the SAME message, or preferring an earlier holder over a later one the
+ * pattern cannot read — is left to the prompt, and is what
+ * `npm run verify:llm:live` grades.
+ * ---------------------------------------------------------------------------
+ */
+
+import { readJson } from "./client";
+import {
+  FOLLOW_UP_SEPARATOR,
+  HOLDER_QUESTION_LINES,
+  NO_HOLDER,
+  fitHolderAddress,
+  isNotAHolderName,
+  readStatedHolder,
+  type StatedHolder,
+} from "@/lib/matching/holder";
+
+// ---------------------------------------------------------------- the requester's own words
+
+/** "On Mon, 1 Sep 2026 at 09:14, Certificates <c@x> wrote:" — on its own line OR flattened. */
+const WROTE = /\bon\s[^\n]{1,200}?\bwrote:/i;
+const ORIGINAL = /-{3,}\s*original\s+message|_{5,}/i;
+const FROM_HEADER = /^[ \t]*from:\s/im;
+
+/**
+ * The part of one message that is the requester's own words.
+ *
+ * Exported because the model is shown exactly this text, and the guards check
+ * its answer against exactly this text. What it never sees it cannot copy.
+ */
+export function ownWords(message: string): string {
+  let cut = message.length;
+
+  const wrote = message.search(WROTE);
+  if (wrote >= 0) cut = Math.min(cut, wrote);
+
+  const original = message.search(ORIGINAL);
+  if (original >= 0) cut = Math.min(cut, original);
+
+  // A "From:" block at the very top is a client that quotes ABOVE the reply;
+  // cutting there would remove the reply itself. The same rule as holder.ts.
+  const from = message.search(FROM_HEADER);
+  if (from > 0) cut = Math.min(cut, from);
+
+  return message
+    .slice(0, cut)
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*>/.test(line))
+    .join("\n")
+    .trim();
+}
+
+/** Every message in a request body, oldest first, reduced to the requester's own words. */
+export function messagesOf(text: string | null | undefined): string[] {
+  return (text ?? "").split(FOLLOW_UP_SEPARATOR).map(ownWords);
+}
+
+// ---------------------------------------------------------------- finding a value verbatim
+
+const EMAIL_SHAPE = /^[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+const EMAIL_ANY = /[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
+const URL_ANY = /\b(?:https?:\/\/|www\.)\S+/gi;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+interface Occurrence {
+  at: number;
+  /** The text as the requester wrote it, whitespace collapsed. */
+  text: string;
+}
+
+/**
+ * Where `value` appears as whole words, ignoring differences of case and
+ * whitespace — and nothing else.
+ *
+ * Email addresses and URLs are blanked out first (same length, so positions
+ * hold): "Keystone" must not be "found verbatim" inside ops@keystone.example.
+ * A match may not continue into a neighbouring word through a hyphen,
+ * apostrophe or dot, so "Keystone" is not found in "Keystone-Group" either.
+ */
+function wordOccurrences(message: string, value: string): Occurrence[] {
+  const body = escapeRegExp(value.trim()).replace(/\s+/g, "\\s+");
+  if (!body) return [];
+  const masked = message
+    .replace(EMAIL_ANY, (m) => " ".repeat(m.length))
+    .replace(URL_ANY, (m) => " ".repeat(m.length));
+  const re = new RegExp(
+    `(?<![A-Za-z0-9]|[A-Za-z0-9][-'’.@])${body}(?![A-Za-z0-9]|[-'’.][A-Za-z0-9])`,
+    "gi"
+  );
+  return [...masked.matchAll(re)].map((m) => {
+    const at = m.index ?? 0;
+    return { at, text: message.slice(at, at + m[0].length).replace(/\s+/g, " ") };
+  });
+}
+
+/** Where `email` appears as a whole address, case-insensitively. A trailing full stop is not part of it. */
+function emailOccurrences(message: string, email: string): Occurrence[] {
+  const re = new RegExp(
+    `(?<![A-Za-z0-9._%+'-])${escapeRegExp(email)}(?![A-Za-z0-9_%+'-]|[.@][A-Za-z0-9])`,
+    "gi"
+  );
+  return [...message.matchAll(re)].map((m) => ({ at: m.index ?? 0, text: m[0].toLowerCase() }));
+}
+
+// ---------------------------------------------------------------- context
+
+/** A policy holder, lien holder, account holder… — never the certificate holder. */
+const OTHER_HOLDER = /\b(?:policy|lien|account|title|card|license|licence|record)[\s-]?holders?\b/i;
+
+/** The requester's own address: "my email is", "our email:", "reach me at". */
+const OWN_ADDRESS =
+  /\b(?:my|our)\s+(?:[a-z]+\s+)?e-?mail(?:\s+address)?\b|\b(?:reach|contact|e-?mail)\s+(?:me|us)\b|\bme\s+at\s*$/i;
+
+/** The words just before a position, back to the start of their sentence. */
+function leadIn(message: string, at: number): string {
+  const before = message.slice(Math.max(0, at - 80), at);
+  let stop = -1;
+  for (const m of before.matchAll(/[.!?;](?=\s)|\n/g)) stop = (m.index ?? 0) + m[0].length;
+  return stop >= 0 ? before.slice(stop) : before;
+}
+
+const SIGN_OFF =
+  /^[ \t]*(?:--+|thanks(?:\s+again)?|thank\s+you|many\s+thanks|regards|kind\s+regards|warm\s+regards|best\s+regards|best\s+wishes|best|sincerely|cheers|respectfully|yours\s+truly)[,!.]?[ \t]*$/gim;
+
+/** A signature runs to a handful of lines. More than this after a "Thanks" is prose. */
+const SIGNATURE_MAX_LINES = 7;
+
+/**
+ * Where the signature block starts, or -1.
+ *
+ * The LAST sign-off, and only when what follows looks like a signature: a few
+ * short lines, none of which mentions a holder. "Thanks!" followed by a
+ * paragraph is courtesy, not a sign-off, and treating everything after it as
+ * letterhead would refuse holders people genuinely stated.
+ */
+function signatureStart(message: string): number {
+  let last: RegExpMatchArray | undefined;
+  for (const m of message.matchAll(SIGN_OFF)) last = m;
+  if (!last || last.index === undefined) return -1;
+
+  const after = message
+    .slice(last.index + last[0].length)
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (after.length > SIGNATURE_MAX_LINES) return -1;
+  if (after.some((l) => /\bholder\b/i.test(l))) return -1;
+  return last.index;
+}
+
+function loose(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+const LABELS = HOLDER_QUESTION_LINES.map((l) => loose(l.replace(/\(optional\)/i, "").replace(/:\s*$/, "")));
+
+/** One of the fill-in labels from our own question, or something built out of one. */
+function isOurLabel(value: string): boolean {
+  if (/\bholder\s+(?:name|e-?mail|address)\b/i.test(value)) return true;
+  if (/^\s*(?:the\s+)?(?:cert(?:ificate)?\.?\s+)?holders?\s*:?\s*$/i.test(value)) return true;
+  return LABELS.includes(loose(value.replace(/:\s*$/, "")));
+}
+
+const alnum = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+// ---------------------------------------------------------------- judging an answer
+
+export type HolderVerdict =
+  | { ok: true; holder: StatedHolder }
+  | { ok: false; reason: string };
+
+const refuse = (reason: string): HolderVerdict => ({ ok: false, reason });
+
+function judge(raw: unknown, text: string | null | undefined): HolderVerdict {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return refuse("not an object");
+  const out = raw as Record<string, unknown>;
+
+  const asText = (v: unknown): string | null | undefined =>
+    v === null || v === undefined ? null : typeof v === "string" ? v : undefined;
+
+  const nameRaw = asText(out.name);
+  const emailRaw = asText(out.email);
+  if (nameRaw === undefined || emailRaw === undefined) return refuse("a field of the wrong type");
+
+  let lines: string[] = [];
+  if (out.addressLines !== null && out.addressLines !== undefined) {
+    if (!Array.isArray(out.addressLines) || out.addressLines.some((l) => typeof l !== "string")) {
+      return refuse("addressLines is not a list of strings");
+    }
+    lines = (out.addressLines as string[]).map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean);
+  }
+
+  const name = (nameRaw ?? "").replace(/\s+/g, " ").trim();
+  const email = (emailRaw ?? "").trim().toLowerCase();
+
+  // Saying nothing is a correct answer, and it is accepted as nothing.
+  if (!name && !email && !lines.length) return { ok: true, holder: { ...NO_HOLDER } };
+
+  const messages = messagesOf(text);
+
+  // ---- the name ----
+  let nameAt = -1;
+  let printedName = "";
+  if (name) {
+    if (name.length < 2 || name.length > 100 || !/[a-z]/i.test(name)) return refuse("name is not a plausible name");
+    if (/[@<>]/.test(name)) return refuse("name carries an address or a placeholder");
+    if (isNotAHolderName(name)) return refuse("name answers without naming anyone");
+    if (isOurLabel(name)) return refuse("name is one of our own fill-in labels");
+
+    // The LATEST message in which the name appears usably.
+    for (let i = messages.length - 1; i >= 0 && nameAt < 0; i--) {
+      const m = messages[i];
+      const sig = signatureStart(m);
+      const usable = wordOccurrences(m, name).filter(
+        (o) => !(sig >= 0 && o.at > sig) && !OTHER_HOLDER.test(leadIn(m, o.at))
+      );
+      if (usable.length) {
+        nameAt = i;
+        printedName = usable[usable.length - 1].text;
+      }
+    }
+    if (nameAt < 0) {
+      const anywhere = messages.some((m) => wordOccurrences(m, name).length > 0);
+      return refuse(
+        anywhere
+          ? "name appears only in a signature, or as a policy, lien or account holder"
+          : "name is not in the requester's own words, verbatim"
+      );
+    }
+
+    // The latest message that names a holder wins. A later message the
+    // pattern can read, naming somebody else, means this answer is stale.
+    for (let i = nameAt + 1; i < messages.length; i++) {
+      const later = readStatedHolder(messages[i]).name;
+      if (later && alnum(later) !== alnum(name)) return refuse("a later message names a different holder");
+    }
+  }
+
+  // Emails and addresses count only from the naming message or a later one.
+  const from = Math.max(nameAt, 0);
+
+  // ---- the email ----
+  if (email) {
+    if (!EMAIL_SHAPE.test(email)) return refuse("email is not an email address");
+
+    let found = false;
+    let onlyEarlier = false;
+    let anywhere = false;
+    messages.forEach((m, i) => {
+      const all = emailOccurrences(m, email);
+      if (all.length) anywhere = true;
+      const sig = signatureStart(m);
+      const usable = all.filter((o) => !(sig >= 0 && o.at > sig) && !OWN_ADDRESS.test(leadIn(m, o.at)));
+      if (!usable.length) return;
+      if (i >= from) found = true;
+      else onlyEarlier = true;
+    });
+
+    if (!found) {
+      if (onlyEarlier) return refuse("email comes from an earlier message than the holder's name");
+      return refuse(
+        anywhere
+          ? "email appears only in a signature, or as the requester's own address"
+          : "email is not in the requester's own words, verbatim"
+      );
+    }
+  }
+
+  // ---- the address ----
+  const printedLines: string[] = [];
+  for (const line of lines) {
+    if (line.length > 100 || /[@<>]/.test(line) || isOurLabel(line)) return refuse("an address line is not an address");
+    let match: Occurrence | undefined;
+    for (let i = messages.length - 1; i >= from && !match; i--) {
+      const m = messages[i];
+      const sig = signatureStart(m);
+      match = wordOccurrences(m, line).find((o) => !(sig >= 0 && o.at > sig));
+    }
+    if (!match) return refuse("an address line is not in the requester's own words, verbatim");
+    printedLines.push(match.text);
+  }
+
+  return {
+    ok: true,
+    holder: {
+      // The requester's spelling, from the matched text — not the model's.
+      name: printedName,
+      email,
+      addressLines: fitHolderAddress(printedLines),
+      complete: Boolean(printedName && email),
+      evidence: "read by model; every value found verbatim in the requester's own words",
+    },
+  };
+}
+
+/**
+ * Turn a model response into a holder, or refuse it with a reason.
+ *
+ * PURE, and exported so every guard can be tested without spending money or
+ * touching the network — each refusal path is a case in `npm run verify:llm`.
+ * The reason names the guard, never the text, so it is safe to log.
+ */
+export function acceptHolderOutput(raw: unknown, text: string | null | undefined): HolderVerdict {
+  try {
+    return judge(raw, text);
+  } catch (err) {
+    return refuse(`the guard itself failed: ${(err as Error).message}`);
+  }
+}
+
+// ---------------------------------------------------------------- the prompt
+
+const SYSTEM = [
+  "You read emails sent to an insurance agency asking for a certificate of insurance.",
+  "Your only job is to find the CERTIFICATE HOLDER: the party the requester says the",
+  "certificate should be issued to.",
+  "",
+  "Report exactly what the requester wrote:",
+  "  name          the certificate holder's name, or null",
+  "  email         the certificate holder's email address, or null",
+  "  addressLines  the certificate holder's postal address, one line per item, or null",
+  "  note          one short clause saying what you read, for a log line, or null",
+  "",
+  "RULES",
+  "",
+  "1. COPY, NEVER WRITE. Every value must be copied character for character from the",
+  "   email. Do not complete a name ('Keystone' is not 'Keystone Brokerage LLC'), add or",
+  "   remove a suffix, fix spelling or capitalisation, add punctuation, or join words",
+  "   from different places. Anything not copied verbatim is rejected, and the whole",
+  "   answer with it.",
+  "",
+  "2. The holder must be STATED as the holder: 'certificate holder: X', 'list X as",
+  "   holder', 'please issue it to X', 'make the certificate out to X'. A company that",
+  "   is only mentioned — including the insured the certificate is FOR — is not the holder.",
+  "",
+  "3. NEVER the sender's signature, sign-off block or letterhead. Whoever wrote the",
+  "   email is not the holder unless they explicitly say so.",
+  "",
+  "4. NEVER 'us', 'we', 'me', 'our company', 'same as last time', 'the usual', or any",
+  "   answer that does not actually name someone. Use null.",
+  "",
+  "5. NEVER a policy holder, lien holder, account holder or any other kind of holder.",
+  "   'The policy holder is X' names the insured, which is a different party.",
+  "",
+  "6. NEVER the requester's own email address: 'my email is ...', 'our email is ...',",
+  "   'reach me at ...'. Only an address given for the holder.",
+  "",
+  "7. The agency's own question may appear with empty lines such as",
+  "   'Certificate holder name:'. Those labels are the agency's words, never an answer.",
+  "",
+  "8. The email may contain several messages, oldest first, each headed",
+  "   '=== MESSAGE n ==='. The LATEST message that names a holder wins. Take the email",
+  "   and address only from that message or a later one, and never pair a name from",
+  "   one message with an email belonging to a different holder.",
+  "",
+  "9. null for every field is a correct and common answer. A person will read the",
+  "   email instead. Guessing is worse than saying nothing.",
+].join("\n");
+
+const nullable = (schema: Record<string, unknown>) => ({ anyOf: [schema, { type: "null" }] });
+
+export const HOLDER_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["name", "email", "addressLines", "note"],
+  properties: {
+    name: nullable({ type: "string" }),
+    email: nullable({ type: "string" }),
+    addressLines: nullable({ type: "array", items: { type: "string" } }),
+    note: nullable({ type: "string" }),
+  },
+};
+
+/** The request for one reading. The model sees only the requester's own words. */
+export function holderPrompt(text: string | null | undefined): {
+  system: string;
+  user: string;
+  schema: Record<string, unknown>;
+} {
+  const messages = messagesOf(text);
+  const body =
+    messages.length > 1
+      ? messages.map((m, i) => `=== MESSAGE ${i + 1} ===\n${m}`).join("\n\n")
+      : (messages[0] ?? "");
+  return { system: SYSTEM, user: ["EMAIL:", "---", body, "---"].join("\n"), schema: HOLDER_SCHEMA };
+}
+
+/**
+ * What came back, and whether the model was reached at all — for the same
+ * reason as the clarify reader: an outage is not a judgement, and logging it as
+ * one buries the disagreements that are.
+ */
+export type HolderLlmReading = { reached: true; verdict: HolderVerdict } | { reached: false };
+
+/** Read a holder with the model. Never throws. */
+export async function readHolderWithLlm(text: string | null | undefined): Promise<HolderLlmReading> {
+  // Nothing of the requester's own to read: every word was quoted mail.
+  if (!messagesOf(text).some(Boolean)) return { reached: false };
+
+  const { system, user, schema } = holderPrompt(text);
+  const result = await readJson({ system, user, schema, label: "holder", maxTokens: 400 });
+  if (!result) return { reached: false };
+
+  return { reached: true, verdict: acceptHolderOutput(result.output, text) };
+}
