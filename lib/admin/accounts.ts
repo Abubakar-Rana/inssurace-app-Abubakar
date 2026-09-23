@@ -29,6 +29,7 @@ import { audit } from "@/lib/audit";
 import { createTenantKey } from "@/lib/crypto/envelope";
 import { hashPassword, temporaryPassword } from "@/lib/auth/password";
 import { ServiceError } from "@/lib/certificate/service";
+import { loadDemoData } from "./demoData";
 
 export type Role = "admin" | "reviewer" | "readonly";
 const ROLES: Role[] = ["admin", "reviewer", "readonly"];
@@ -146,6 +147,17 @@ export async function createAgency(actor: Actor, input: CreateAgencyInput) {
     });
     return admin.id;
   });
+
+  // A new agency starts with demonstration clients and policies, so the very
+  // first request it receives produces a real certificate instead of "needs
+  // identifying". The agency removes them in Settings -> Data source, or they
+  // are simply ignored once NowCerts is connected (the sync never touches
+  // demo rows). A failure here must not cost us the agency that was created.
+  try {
+    await loadDemoData(tenantId, { userId: null, by: auditActor(actor).by });
+  } catch (err) {
+    console.warn(`[demo-data] could not load for ${slug}: ${(err as Error).message}`);
+  }
 
   return { tenantId, slug, adminId, adminEmail, tempPassword };
 }
