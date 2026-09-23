@@ -260,7 +260,29 @@ email, matches the insured in AMS360, and auto-fills a pixel-perfect **ACORD 25
 >
 > Tests: `npm run verify:mail-oauth` (pure; network faked).
 >
-> Known pre-existing failures in `npm run verify:ui`: "shows draft state" and
+> **LLM reading is wired for the INSURED reader (2026-09-23).** `lib/llm/*`
+> (the user's own code) reads an email and says which company the certificate
+> is for; `lib/matching/interpret.ts` calls it, resolves its names against the
+> client list exactly as it does the pattern reader's, and records every
+> reading in `llm_readings`. Switched on with `LLM_READING` (per reader),
+> `LLM_SHADOW=1` to compare without acting. Off => unchanged behaviour, which
+> is how every suite runs.
+>
+> - The model may only return names and USDOT/MC numbers that appear VERBATIM in
+>   the email (`acceptInsuredOutput` guards); a federal number beats a name.
+>   It still cannot express a limit, a policy number or a recipient.
+> - Added for it: `requestText`/`bodyAboveSignature` (extract.ts),
+>   `stripOurExamples` (clarify.ts), exported `COMPETING` (identifier.ts),
+>   `llmReadings` (schema, migration 0009), `lib/llm/messages.ts` (shared
+>   `ownWords`/`messagesOf`/`FOLLOW_UP_SEPARATOR`).
+> - **Not wired yet:** classify, vin, clarify (their readers exist in lib/llm).
+>   `lib/llm/certificateHolder.ts.pending` needs a newer `lib/matching/holder.ts`
+>   than this branch has - merge that first, then rename it back.
+> - Verified live: an email phrased "the vendor agreement with Meridian
+>   Logistics LLC" - which the patterns read as no name at all - now matches,
+>   while the seeded emails that must be refused are still refused with the LLM on.
+>
+> > Known pre-existing failures in `npm run verify:ui`: "shows draft state" and
 > "edit mode opens" — the certificate page says "DRAFT"/"Edit fields", the test
 > still expects "Draft"/"Edit form". Not caused by the SaaS work.
 
