@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "./icons";
+import Toasts from "./Toasts";
 import { signOut, useStore } from "@/lib/store";
 
 function initials(name) {
@@ -21,7 +22,7 @@ function NavItem({ href, icon: I, label, active, count }) {
     <Link
       href={href}
       className={`flex h-[34px] items-center gap-[11px] rounded-[7px] px-2.5 text-[13.5px] transition ${
-        active ? "bg-[#e8eaee] font-semibold text-ink-900" : "font-medium text-ink-600 hover:bg-[#eef0f3]"
+        active ? "bg-white font-semibold text-ink-900 shadow-[0_1px_2px_rgba(20,27,45,0.06)]" : "font-medium text-ink-600 hover:bg-white/60"
       }`}
     >
       <I width={17} height={17} />
@@ -100,7 +101,7 @@ export default function AppShell({ children, inboxCount = 0 }) {
   return (
     <div className="flex h-screen overflow-hidden bg-white">
       {/* ───────────────────────── sidebar ───────────────────────── */}
-      <aside className="no-print hidden w-[232px] flex-none flex-col border-r border-line bg-surface-shell lg:flex">
+      <aside className="no-print hidden w-[232px] flex-none flex-col border-r border-[#d5dbe6] bg-surface-sidebar lg:flex">
         <Link href="/inbox" className="flex h-14 items-center gap-2.5 px-[18px]">
           <span className="flex h-[26px] w-[26px] items-center justify-center rounded-[7px] bg-brand-500 text-white">
             <Icon.Shield width={15} height={15} strokeWidth={2} />
@@ -127,24 +128,34 @@ export default function AppShell({ children, inboxCount = 0 }) {
 
         <FeedState live={store.live} mailbox={mailbox} />
 
-        <div className="flex items-center gap-2.5 px-3.5 pb-3.5 pt-2.5">
-          <span className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-full bg-[#e0e3e8] text-[10.5px] font-semibold text-ink-600">
-            {initials(user?.name)}
-          </span>
-          <div className="min-w-0 leading-tight">
-            <p className="truncate text-[12px] font-medium text-ink-700">{user?.name || "…"}</p>
-            <p className="truncate text-[11px] text-ink-400">{user?.tenantName || user?.email || ""}</p>
-            <Link href="/account/password" className="text-[11px] text-ink-400 hover:text-ink-700">
-              Change password
-            </Link>
+        <div className="px-3.5 pb-3.5 pt-2.5">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-full bg-[#e0e3e8] text-[10.5px] font-semibold text-ink-600">
+              {initials(user?.name)}
+            </span>
+            <div className="min-w-0 leading-tight">
+              <p className="truncate text-[12px] font-medium text-ink-700">{user?.name || "…"}</p>
+              <p className="truncate text-[11px] text-ink-400">{user?.tenantName || user?.email || ""}</p>
+            </div>
           </div>
-          <button
-            onClick={signOut}
-            title="Sign out"
-            className="ml-auto flex h-7 w-7 flex-none items-center justify-center rounded-md text-ink-400 transition hover:bg-[#e8eaee] hover:text-ink-700"
-          >
-            <Icon.Chevron width={15} height={15} />
-          </button>
+          {/* Signing out was a chevron with a tooltip, which is a guess rather
+              than a control. It is a labelled button now, and the milder one of
+              the two: changing your password is the routine act. */}
+          <div className="mt-2.5 flex items-center gap-1.5">
+            <Link
+              href="/account/password"
+              className="flex h-[30px] flex-1 items-center justify-center rounded-[7px] border border-[#d7dbe2] bg-white text-[12px] font-semibold text-ink-700 transition hover:bg-surface-hover"
+            >
+              Password
+            </Link>
+            <button
+              onClick={signOut}
+              className="flex h-[30px] flex-1 items-center justify-center gap-1.5 rounded-[7px] bg-brand-500 text-[12px] font-semibold text-white transition hover:bg-brand-600 active:scale-[0.98]"
+            >
+              <Icon.Arrow width={14} height={14} />
+              Sign out
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -161,6 +172,23 @@ export default function AppShell({ children, inboxCount = 0 }) {
           </Link>
 
           <div className="flex-1" />
+
+          {/* Certificates leaving without a reviewer is the one state of this
+              system that everyone on the team should be able to see at a
+              glance, from any screen. It pulses so it reads as live, not as a
+              label someone left on. */}
+          {mailbox?.autoSend && (
+            <span
+              title="Certificates for clearly identified clients are issued and emailed automatically. Turn this off in Settings -> Automation."
+              className="flex h-[26px] items-center gap-2 rounded-full border border-brand-200 bg-brand-50 pl-2.5 pr-3 text-[12px] font-semibold text-brand-700"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-500 opacity-70" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-brand-500" />
+              </span>
+              Auto-send on
+            </span>
+          )}
 
           {/* The only number here that means "work you have not looked at". */}
           {store.unreadCount > 0 && (
@@ -187,6 +215,11 @@ export default function AppShell({ children, inboxCount = 0 }) {
         {pathname === "/inbox" && <InboxBanner mailbox={mailbox} />}
         <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
       </div>
+
+      {/* Outside the scrolling column on purpose: a notice about something
+          that happened without a reviewer has to stay in the corner of the
+          screen, not scroll away with the list it refers to. */}
+      <Toasts />
     </div>
   );
 }

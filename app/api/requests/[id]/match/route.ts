@@ -15,6 +15,7 @@ import { audit } from "@/lib/audit";
 import { json, readJson, route } from "@/lib/api";
 import { requireWrite } from "@/lib/auth/session";
 import { generateDraft, ServiceError } from "@/lib/certificate/service";
+import { maybeAutoSend } from "@/lib/certificate/autoSend";
 import { interpret } from "@/lib/matching/interpret";
 
 export const dynamic = "force-dynamic";
@@ -107,6 +108,9 @@ export const POST = route<{ id: string }>(async (session, req, { params }) => {
       params.id
     );
     certificate = { id: draft.id, certificateNumber: draft.certificateNumber };
+    // Auto-send, if this agency runs that way. A no-op otherwise, and it never
+    // fails the match: the reviewer's action already succeeded.
+    await maybeAutoSend(session.tenantId, params.id);
   } catch {
     // The match itself succeeded and is what the reviewer asked for. A drafting
     // failure leaves them on a matched request they can retry, not an error

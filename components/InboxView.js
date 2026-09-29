@@ -31,16 +31,18 @@ function formatDay(iso) {
 }
 
 /**
- * Which of the reviewer's three questions a request answers.
+ * Which stage of the journey a request is at.
  *
- * This is the whole information architecture: what needs me, what is waiting on
- * someone else, what is finished. Every status maps to exactly one, so a
- * request is never in two places and never in none.
+ * This is the whole information architecture, and it follows the work itself:
+ * a request ARRIVES, a certificate is PREPARED from it, a person approves it so
+ * it is READY, and then it is SENT. Every status maps to exactly one stage, so
+ * a request is never in two tabs and never in none.
  */
 function bucketOf(status) {
-  if (status === "awaitingRequester") return "waiting";
-  if (status === "approved" || status === "sent" || status === "rejected") return "done";
-  return "needs";
+  if (status === "ready") return "prepared"; // drafted, waiting on a reviewer
+  if (status === "approved") return "ready"; // issued, not yet emailed
+  if (status === "sent" || status === "rejected") return "sent";
+  return "arrivals"; // new, interpreting, needsMatch, awaitingRequester
 }
 
 /**
@@ -53,17 +55,26 @@ function bucketOf(status) {
  */
 function groupOf(req) {
   if (req.status === "new" || req.status === "interpreting") return "arriving";
+  if (req.status === "awaitingRequester") return "waiting";
+  if (req.status === "approved") return "approved";
   return req.insuredName ? "review" : "identify";
 }
 
 const GROUP_LABEL = {
   arriving: "Just arrived",
   identify: "Needs identifying",
+  waiting: "Waiting on the requester",
   review: "Drafted, awaiting your review",
+  approved: "Approved — ready to send",
 };
 
 /** Why this request is sitting here, in the reviewer's own terms. */
 function reasonFor(req) {
+  // An agency running on auto-send is not watching the queue, so the one thing
+  // that must never be quiet is "this one did not go out".
+  if (req.autoSendError) {
+    return `Automatic sending stopped · ${req.autoSendError}`;
+  }
   if (req.insuredName) {
     return [req.insuredName, req.clientNumber && `#${req.clientNumber}`, req.certificateStatus === "issued" ? "issued" : req.certificateId && "draft"]
       .filter(Boolean)
@@ -77,18 +88,33 @@ function reasonFor(req) {
 }
 
 const TABS = [
-  { id: "needs", label: "Needs you" },
-  { id: "waiting", label: "Waiting on requester" },
-  { id: "done", label: "Done" },
+  { id: "arrivals", label: "New requests" },
+  { id: "prepared", label: "Prepared" },
+  { id: "ready", label: "Ready to send" },
+  { id: "sent", label: "Sent" },
   { id: "all", label: "All" },
 ];
+
+/** Rows per page. Paging is explicit and numbered — never infinite scroll. */
+const PAGE_SIZE = 25;
+
+/** The order the headings read in, whichever tab is open. */
+const GROUP_ORDER = ["arriving", "identify", "waiting", "review", "approved"];
+
+const EMPTY_COPY = {
+  arrivals: ["Nothing new", "New certificate requests will appear here as they arrive."],
+  prepared: ["No certificates prepared", "When a request is matched to an insured, its certificate is drafted here."],
+  ready: ["Nothing ready to send", "Certificates you approve wait here until they are emailed."],
+  sent: ["Nothing sent yet", "Certificates you have emailed to a requester appear here."],
+  all: ["Nothing here", "Requests will appear here as they arrive."],
+};
 
 export default function InboxView() {
   const store = useStore();
   const router = useRouter();
-  const [tab, setTab] = useState("needs");
+  const [tab, setTab] = useState("arrivals");
   const [query, setQuery] = useState("");
-  const [shown, setShown] = useState(50); // explicit paging, never infinite scroll
+  const [pageNo, setPageNo] = useState(1);
   const [opening, setOpening] = useState(null);
   const [matching, setMatching] = useState(null);
   const [failed, setFailed] = useState(null);
@@ -106,7 +132,7 @@ export default function InboxView() {
   }, [store.lastEvent]);
 
   const counts = useMemo(() => {
-    const c = { needs: 0, waiting: 0, done: 0, all: store.requests.length };
+    const c = { arrivals: 0, prepared: 0, ready: 0, sent: 0, all: store.requests.length };
     store.requests.forEach((r) => {
       c[bucketOf(r.status)] += 1;
     });
@@ -124,11 +150,17 @@ export default function InboxView() {
     });
   }, [store.requests, tab, query]);
 
-  // Finished work is for finding, not reading, so it is grouped by day and
-  // paged. Live work is grouped by what it asks of you and never truncated —
-  // a reviewer must be able to see all of their outstanding work.
-  const archive = tab === "done";
-  const page = archive ? visible.slice(0, shown) : visible;
+  // Sent work is for finding, not reading: one line a row, grouped by the day
+  // it came in. Everything else is grouped by what it asks of you.
+  const archive = tab === "sent";
+
+  // Every tab is paged, so the screen behaves the same at 20 requests and at
+  // 20,000. The page is clamped rather than reset when the list shrinks under
+  // it — a live arrival must never yank the page out from under a reviewer.
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const current = Math.min(pageNo, pageCount);
+  const from = (current - 1) * PAGE_SIZE;
+  const page = visible.slice(from, from + PAGE_SIZE);
 
   // Grouped by key, not by runs. The list is ordered by arrival time, so the
   // kinds of work interleave — collecting them into buckets is what keeps
@@ -145,8 +177,13 @@ export default function InboxView() {
     // Live work reads in the order a reviewer works it; the archive reads
     // newest first, which is the order it already arrived in.
     if (archive) return [...byKey.values()];
-    return ["arriving", "identify", "review"].map((k) => byKey.get(k)).filter(Boolean);
+    return GROUP_ORDER.map((k) => byKey.get(k)).filter(Boolean);
   }, [page, archive]);
+
+  // A new search, or a new tab, starts at the first page.
+  useEffect(() => {
+    setPageNo(1);
+  }, [tab, query]);
 
   const showIgnored = useCallback(async () => {
     if (ignored) return setIgnored(null);
@@ -201,18 +238,17 @@ export default function InboxView() {
           return (
             <button
               key={t.id}
-              onClick={() => {
-                setTab(t.id);
-                setShown(50);
-              }}
-              className={`flex h-9 items-center gap-[7px] ${on ? "shadow-[inset_0_-2px_0_#141b2d]" : ""}`}
+              onClick={() => setTab(t.id)}
+              className={`flex h-9 items-center gap-[7px] transition ${
+                on ? "shadow-[inset_0_-2px_0_#f26522]" : "hover:shadow-[inset_0_-2px_0_#ffc7ad]"
+              }`}
             >
               <span className={`text-[13px] ${on ? "font-semibold text-ink-900" : "text-ink-500"}`}>
                 {t.label}
               </span>
               <span
-                className={`text-[12px] ${
-                  t.id === "needs" && counts.needs > 0 ? "font-semibold text-brand-500" : "text-ink-400"
+                className={`rounded-full px-1.5 py-0.5 text-[11.5px] font-semibold ${
+                  on ? "bg-brand-50 text-brand-600" : "bg-ink-900/5 text-ink-500"
                 }`}
               >
                 {counts[t.id]}
@@ -276,16 +312,14 @@ export default function InboxView() {
           <div className="flex h-full flex-col items-center justify-center gap-1.5 pb-16">
             <Icon.Inbox width={30} height={30} strokeWidth={1.4} className="text-ink-300" />
             <p className="mt-3 text-[15px] font-semibold text-ink-900">
-              {query ? "Nothing matches that" : tab === "needs" ? "Nothing waiting on you" : "Nothing here"}
+              {query ? "Nothing matches that" : (EMPTY_COPY[tab] ?? EMPTY_COPY.all)[0]}
             </p>
             <p className="text-[13.5px] text-ink-500">
               {query
                 ? "Try a company name, a sender, or a certificate number."
-                : tab === "needs"
-                  ? "Every request that came in has been answered."
-                  : "Requests will appear here as they arrive."}
+                : (EMPTY_COPY[tab] ?? EMPTY_COPY.all)[1]}
             </p>
-            {!query && tab === "needs" && (
+            {!query && tab === "arrivals" && (
               <p className="mt-5 text-[12.5px] text-ink-400">
                 New requests appear on their own — nothing to refresh.
               </p>
@@ -321,26 +355,21 @@ export default function InboxView() {
           </div>
         ))}
 
-        {/* Explicit, so a reviewer can tell how much they have not seen. */}
-        {archive && visible.length > page.length && (
-          <div className="flex h-[52px] items-center justify-center gap-3 border-b border-line-faint">
-            <button
-              onClick={() => setShown((n) => n + 50)}
-              className="h-[30px] rounded-[7px] border border-[#d7dbe2] px-4 text-[12.5px] font-semibold text-ink-700 transition hover:bg-surface-hover"
-            >
-              Load 50 more
-            </button>
-            <span className="text-[12px] text-ink-400">
-              {page.length} of {visible.length} shown
-            </span>
-          </div>
+        {/* Numbered paging, so the screen reads the same at any volume and a
+            reviewer always knows where they are in the list. */}
+        {pageCount > 1 && (
+          <Pager page={current} pageCount={pageCount} total={visible.length} onGo={setPageNo} />
         )}
       </div>
 
       {/* ───────────────── footer ───────────────── */}
       <div className="flex h-[38px] flex-none items-center gap-3.5 border-t border-line bg-surface-sunken px-[22px]">
         <span className="text-[12px] text-ink-500">
-          {store.hydrated ? `${visible.length} shown` : "…"}
+          {store.hydrated
+            ? visible.length === 0
+              ? "0 shown"
+              : `${from + 1}–${from + page.length} of ${visible.length}`
+            : "…"}
         </span>
         <span className="h-3.5 w-px bg-line" />
         {/* The filter is a heuristic, so its misses stay reachable — pulled
@@ -390,13 +419,69 @@ export default function InboxView() {
   );
 }
 
+/**
+ * The action on a row. Filled brand orange: the row's action is the one thing
+ * on it a reviewer is there to press, and at a glance down the list the column
+ * of buttons is what tells them how much work is waiting.
+ */
+const ROW_ACTION =
+  "h-[30px] w-full whitespace-nowrap rounded-[7px] bg-brand-500 px-3.5 text-[12.5px] font-semibold text-white transition hover:bg-brand-600 active:scale-[0.98] disabled:opacity-60";
+
+/**
+ * Numbered paging. Shows the first and last page always, and a window around
+ * the current one, so the control stays the same width at 3 pages and at 300.
+ */
+function Pager({ page, pageCount, total, onGo }) {
+  const numbers = [];
+  for (let n = 1; n <= pageCount; n++) {
+    if (n === 1 || n === pageCount || Math.abs(n - page) <= 1) numbers.push(n);
+    else if (numbers[numbers.length - 1] !== "…") numbers.push("…");
+  }
+
+  const step = (delta) => () => onGo(Math.min(pageCount, Math.max(1, page + delta)));
+  const box =
+    "flex h-[30px] min-w-[30px] items-center justify-center rounded-[7px] px-2.5 text-[12.5px] font-semibold transition disabled:opacity-40";
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-1.5 border-b border-line-faint py-3">
+      <button onClick={step(-1)} disabled={page === 1} className={`${box} border border-[#d7dbe2] text-ink-700 hover:bg-surface-hover`}>
+        Previous
+      </button>
+      {numbers.map((n, i) =>
+        n === "…" ? (
+          <span key={`gap-${i}`} className="px-1 text-[12.5px] text-ink-400">
+            …
+          </span>
+        ) : (
+          <button
+            key={n}
+            onClick={() => onGo(n)}
+            aria-current={n === page ? "page" : undefined}
+            className={`${box} ${
+              n === page
+                ? "bg-brand-500 text-white"
+                : "border border-[#d7dbe2] text-ink-700 hover:bg-surface-hover"
+            }`}
+          >
+            {n}
+          </button>
+        )
+      )}
+      <button onClick={step(1)} disabled={page === pageCount} className={`${box} border border-[#d7dbe2] text-ink-700 hover:bg-surface-hover`}>
+        Next
+      </button>
+      <span className="ml-2 text-[12px] text-ink-400">{total} in total</span>
+    </div>
+  );
+}
+
 /** A row of live work: two lines, an action, 62px. */
 function LiveRow({ req, busy, onIdentify, onOpen }) {
   const needsIdentifying = !req.insuredName;
   const arriving = req.status === "new" || req.status === "interpreting";
 
   return (
-    <div className="grid h-[62px] grid-cols-[30px_172px_minmax(0,1fr)_auto_74px] items-center gap-3.5 border-b border-line-soft px-[22px] transition hover:bg-surface-hover">
+    <div className="grid h-[62px] grid-cols-[30px_172px_minmax(0,1fr)_152px_74px] items-center gap-3.5 border-b border-line-soft px-[22px] transition hover:bg-surface-hover">
       {/* Unread reads as weight, like a mail client. The dot is the only other
           thing on this screen allowed to be orange. */}
       <span className={`h-[7px] w-[7px] rounded-full ${req.unread ? "bg-brand-500" : ""}`} />
@@ -413,28 +498,19 @@ function LiveRow({ req, busy, onIdentify, onOpen }) {
         >
           {req.subject}
         </p>
-        <p className="truncate text-[12px] text-ink-400">{reasonFor(req)}</p>
+        <p className={`truncate text-[12px] ${req.autoSendError ? "font-medium text-red-600" : "text-ink-400"}`}>
+          {reasonFor(req)}
+        </p>
       </div>
 
       {arriving ? (
-        <span className="whitespace-nowrap text-[12px] text-ink-400">Reading…</span>
+        <span className="whitespace-nowrap text-center text-[12px] text-ink-400">Reading…</span>
       ) : needsIdentifying ? (
-        // Outline, not filled. A filled accent button per row means twenty of
-        // them on a busy morning, and an accent that appears twenty times has
-        // stopped pointing at anything. Orange is left to the unread dot and
-        // the "Needs you" count; the grouping already says this is your work.
-        <button
-          onClick={onIdentify}
-          className="h-[30px] whitespace-nowrap rounded-[7px] border border-[#d7dbe2] bg-white px-3.5 text-[12.5px] font-semibold text-ink-900 transition hover:bg-surface-hover active:scale-[0.98]"
-        >
+        <button onClick={onIdentify} className={ROW_ACTION}>
           {req.status === "awaitingRequester" ? "Identify anyway" : "Identify insured"}
         </button>
       ) : (
-        <button
-          onClick={onOpen}
-          disabled={busy}
-          className="h-[30px] whitespace-nowrap rounded-[7px] border border-[#d7dbe2] bg-white px-3.5 text-[12.5px] font-semibold text-ink-900 transition hover:bg-surface-hover disabled:opacity-60"
-        >
+        <button onClick={onOpen} disabled={busy} className={ROW_ACTION}>
           {busy ? "Preparing…" : req.certificateStatus === "issued" ? "View certificate" : "Review certificate"}
         </button>
       )}

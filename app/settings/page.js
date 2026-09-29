@@ -630,6 +630,11 @@ function DemoDataCard({ demo, onSaved }) {
 
 function AutomationTab({ agency, onSaved }) {
   const { busy, notice, run } = useAction();
+  const store = useStore();
+  // Certificates drafted while auto-send was off (or before it was switched
+  // on) are not swept up automatically — turning a switch on should not fire a
+  // backlog of email at people without the agency saying so.
+  const waiting = store.requests.filter((r) => r.status === "ready" && r.certificateId).length;
   return (
     <Section title="Sending certificates" description="What happens after CertFlow has prepared a certificate.">
       <Toggle
@@ -645,9 +650,37 @@ function AutomationTab({ agency, onSaved }) {
       {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
       <Notice tone="info">
         {agency.autoSend
-          ? "On. Every automatic send is recorded in the audit log as sent by the system."
+          ? "On. Every automatic send is recorded in the audit log as sent by the system, and anything it cannot finish is flagged on the request in your inbox."
           : "Off. A reviewer approves and sends every certificate (recommended while you are getting started)."}
       </Notice>
+
+      {agency.autoSend && waiting > 0 && (
+        <div className="rounded-xl border border-line bg-surface-shell p-4">
+          <p className="text-[13.5px] font-semibold text-ink-900">
+            {waiting} certificate{waiting === 1 ? " was" : "s were"} prepared before auto-send was on
+          </p>
+          <p className="mt-0.5 text-[12.5px] leading-snug text-ink-500">
+            They are waiting for review. Send them now and they go out exactly as an automatic send would —
+            issued, emailed in the original thread, and recorded.
+          </p>
+          <Button
+            className="mt-3"
+            busy={busy === "backlog"}
+            disabled={Boolean(busy)}
+            onClick={() =>
+              confirm(`Send ${waiting} prepared certificate${waiting === 1 ? "" : "s"} to their requesters now?`) &&
+              run(
+                "backlog",
+                () => call("/api/settings/automation/send-prepared", { method: "POST" }),
+                (r) =>
+                  `${r.sent} sent${r.flagged ? `, ${r.flagged} could not be sent (flagged in your inbox)` : ""}.`
+              ).then((r) => r && store.refresh())
+            }
+          >
+            Send them now
+          </Button>
+        </div>
+      )}
     </Section>
   );
 }

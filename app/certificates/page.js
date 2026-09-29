@@ -57,11 +57,13 @@ export default function CertificatesPage() {
 
         {rows?.length === 0 && (
           <p className="mt-6 rounded-2xl border border-dashed border-ink-900/10 bg-white/60 px-5 py-8 text-center text-sm text-ink-500">
-            Nothing issued yet. Generate one from the{" "}
-            <Link href="/inbox" className="font-medium text-accent-600 hover:underline">
-              request inbox
+            <span className="block">Nothing issued yet. Certificates appear here once you approve them.</span>
+            <Link
+              href="/inbox"
+              className="mt-4 inline-flex h-[34px] items-center rounded-[7px] bg-brand-500 px-4 text-[13px] font-semibold text-white transition hover:bg-brand-600 active:scale-[0.98]"
+            >
+              Go to the request inbox
             </Link>
-            .
           </p>
         )}
 
@@ -81,7 +83,7 @@ export default function CertificatesPage() {
                 {rows.map((c) => {
                   const meta = STATUS[c.status] ?? STATUS.draft;
                   return (
-                    <tr key={c.id} className="border-b border-ink-900/5 last:border-0">
+                    <tr key={c.id} className="border-b border-ink-900/5 transition hover:bg-surface-hover last:border-0">
                       <td className="px-4 py-3">
                         <span className="font-mono text-[13px] font-medium text-ink-900">
                           {c.certificateNumber}
@@ -121,14 +123,15 @@ export default function CertificatesPage() {
                             href={store.certificatePdfUrl(c.id)}
                             target="_blank"
                             rel="noreferrer"
-                            className="rounded-lg border border-ink-900/10 px-2.5 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-900/5"
+                            className="inline-flex h-[30px] items-center gap-1.5 rounded-[7px] border border-[#d7dbe2] bg-white px-3 text-[12px] font-semibold text-ink-700 transition hover:bg-surface-hover active:scale-[0.98]"
                           >
+                            <Icon.Download width={14} height={14} />
                             PDF
                           </a>
                           {c.requestId && (
                             <Link
                               href={`/certificate/${c.requestId}`}
-                              className="rounded-lg border border-ink-900/10 px-2.5 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-900/5"
+                              className="inline-flex h-[30px] items-center rounded-[7px] bg-brand-500 px-3.5 text-[12px] font-semibold text-white transition hover:bg-brand-600 active:scale-[0.98]"
                             >
                               Open
                             </Link>

@@ -34,9 +34,18 @@ const CHANNEL = "certflow_events";
 
 export interface DashboardEvent {
   /** What happened. The client decides what, if anything, to re-fetch. */
-  type: "requests.changed" | "ping";
+  type: "requests.changed" | "certificate.autoSent" | "certificate.autoSendFailed" | "ping";
   /** How many new requests were ingested, when that is what happened. */
   inserted?: number;
+  /**
+   * Which request an auto-send event is about.
+   *
+   * An opaque UUID and nothing else — no insured, no certificate number, no
+   * recipient. The dashboard raises its toast from the row it re-fetches
+   * through the normal authenticated route, so the rule above still holds:
+   * this channel announces, it never discloses.
+   */
+  requestId?: string;
   /** Server time, so a client can tell a stale replay from a fresh event. */
   at: string;
 }

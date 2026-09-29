@@ -71,6 +71,13 @@
       "when": 1790186307442,
       "tag": "0009_llm_readings",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790677341189,
+      "tag": "0010_auto_send_flag",
+      "breakpoints": true
     }
   ]
 }

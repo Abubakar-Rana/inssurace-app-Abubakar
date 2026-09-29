@@ -17,9 +17,9 @@
  * in the result so a wrong skip is visible on the dashboard, not silent.
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { withTenant } from "@/lib/db/client";
-import { coiRequests } from "@/db/schema";
+import { auditLog, coiRequests } from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { interpretRequest } from "@/lib/matching/interpret";
 import { extractHolder, upsertHolder } from "@/lib/matching/holder";
@@ -578,6 +578,55 @@ type ReplyHandling =
  * found nothing waiting, and appeared on the dashboard as a duplicate of the
  * conversation already sitting there.
  */
+/**
+ * Has this exact message been ingested before?
+ *
+ * ------------------------------------------------------------------------
+ * A MESSAGE MUST NEVER BE FOLDED INTO ITSELF.
+ *
+ * A thread contains the message that started it, so the SECOND time the same
+ * email is fetched - two watcher loops, a restart, an overlapping poll - the
+ * thread lookup below finds the request that this very message created, and
+ * without this check it is treated as a follow-up to itself: its own text
+ * appended to its own body, a fresh draft, and, with auto-send on, a second
+ * certificate emailed to the requester. That is what this fixes.
+ *
+ * The new-request path never had the problem - the unique index on
+ * (tenant, gmail_message_id) decides that race in the database. This is the
+ * same key, applied to the path that does not insert a row.
+ *
+ * Two records say a message was seen, and both are checked:
+ *   it BECAME a request      -> coi_requests.gmail_message_id
+ *   it was FOLDED into one   -> the audit entry that the fold writes
+ * The audit log is used rather than a new column because the fold already
+ * records the id there, in the same transaction as the change itself.
+ * ------------------------------------------------------------------------
+ */
+async function alreadyIngested(tenantId: string, messageId: string): Promise<boolean> {
+  if (!messageId) return false;
+
+  return withTenant(tenantId, async (tx) => {
+    const [asRequest] = await tx
+      .select({ id: coiRequests.id })
+      .from(coiRequests)
+      .where(eq(coiRequests.gmailMessageId, messageId))
+      .limit(1);
+    if (asRequest) return true;
+
+    const [folded] = await tx
+      .select({ seq: auditLog.seq })
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "request.followed_up"),
+          sql`${auditLog.after}->>'messageId' = ${messageId}`
+        )
+      )
+      .limit(1);
+    return Boolean(folded);
+  });
+}
+
 async function handleIfReply(
   tenantId: string,
   email: InboundEmail
@@ -588,6 +637,11 @@ async function handleIfReply(
     findRequestInThread(tx, email.inReplyTo, email.threadId)
   );
   if (!related) return null;
+
+  // Checked here rather than at the top of the loop: only mail that matches
+  // a thread can be re-applied to a request, and only that mail should pay
+  // for the lookup.
+  if (await alreadyIngested(tenantId, email.messageId)) return { kind: "duplicate" };
 
   if (related.status === "awaitingRequester") {
     return { kind: "answered", requestId: related.id, outcome: await applyAnswer(tenantId, related, email.body) };

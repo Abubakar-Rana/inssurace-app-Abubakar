@@ -30,6 +30,7 @@ export const GET = route(async (session) => {
                      'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "receivedAt",
              r.status,
              r.match_confidence as "matchConfidence",
+             r.auto_send_error  as "autoSendError",
              -- Null until a reviewer opens it. This is what the unread count
              -- on the dashboard counts.
              to_char(r.viewed_at at time zone 'UTC',

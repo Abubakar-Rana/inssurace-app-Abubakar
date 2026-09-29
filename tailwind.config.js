@@ -51,7 +51,11 @@ module.exports = {
           faint: "#f2f4f7",
         },
         surface: {
-          shell: "#f7f8fa", // sidebar and sticky group headings
+          // The sidebar reads as a different surface from the work area, not a
+          // slightly lighter one: a cool grey with a little navy in it, which
+          // sits under the same ink-* text without tinting it.
+          sidebar: "#e8ecf3",
+          shell: "#f7f8fa", // sticky group headings
           hover: "#f2f4f7", // row hover, document background
           sunken: "#fafbfc", // list footer
         },

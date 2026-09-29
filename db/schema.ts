@@ -525,6 +525,17 @@ export const coiRequests = pgTable(
      * the same on every device and survives a sign-out — "have we dealt with
      * this?" is a property of the agency, not of one laptop.
      */
+    /**
+     * Why automatic sending could not finish this request, in the agency's own
+     * words. Null when auto-send is off, has not run, or succeeded.
+     *
+     * Stored on the request rather than only logged, because the reviewer has
+     * to SEE it: a request that auto-send gave up on looks exactly like one
+     * waiting its turn, and the whole point of the switch is that nobody is
+     * watching the queue.
+     */
+    autoSendError: text("auto_send_error"),
+    autoSendAt: timestamp("auto_send_at", { withTimezone: true }),
     viewedAt: timestamp("viewed_at", { withTimezone: true }),
     viewedBy: uuid("viewed_by").references(() => users.id),
     /** Purge jobs skip rows past this date unless legalHold is set. */
