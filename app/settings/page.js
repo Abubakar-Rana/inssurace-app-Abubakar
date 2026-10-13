@@ -636,6 +636,8 @@ function AutomationTab({ agency, onSaved }) {
   // backlog of email at people without the agency saying so.
   const waiting = store.requests.filter((r) => r.status === "ready" && r.certificateId).length;
   return (
+    <>
+    <AiReadingStatus />
     <Section title="Sending certificates" description="What happens after CertFlow has prepared a certificate.">
       <Toggle
         checked={agency.autoSend}
@@ -681,6 +683,75 @@ function AutomationTab({ agency, onSaved }) {
           </Button>
         </div>
       )}
+    </Section>
+    </>
+  );
+}
+
+/**
+ * Whether AI reading is working. It fails silently by design — every reader
+ * falls back to its rules — so this is the one place an admin can see it, and
+ * re-check after replacing a key.
+ */
+function AiReadingStatus() {
+  const [status, setStatus] = useState(null);
+  const [checking, setChecking] = useState(false);
+
+  const load = useCallback((refresh) => {
+    setChecking(true);
+    return fetch(`/api/llm/status${refresh ? "?refresh=1" : ""}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((s) => s && setStatus(s))
+      .catch(() => {})
+      .finally(() => setChecking(false));
+  }, []);
+
+  useEffect(() => {
+    load(false);
+  }, [load]);
+
+  const label = !status
+    ? "Checking…"
+    : status.state === "ok"
+      ? "Working"
+      : status.state === "off"
+        ? "Off"
+        : "Not working";
+
+  return (
+    <Section
+      title="AI reading"
+      description="Reads each request to find which client it is for and who the certificate holder is. If it stops working, CertFlow falls back to its built-in rules and more requests wait for a person."
+    >
+      <div className="flex flex-wrap items-center gap-3">
+        <span
+          className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[12.5px] font-semibold ${
+            status?.state === "ok"
+              ? "bg-emerald-50 text-emerald-800"
+              : status?.state === "down"
+                ? "bg-red-50 text-red-800"
+                : "bg-surface-shell text-ink-600"
+          }`}
+        >
+          <span
+            className={`h-2 w-2 rounded-full ${
+              status?.state === "ok" ? "bg-emerald-500" : status?.state === "down" ? "bg-red-600" : "bg-ink-300"
+            }`}
+          />
+          {label}
+        </span>
+        {status && (
+          <span className="text-[12.5px] text-ink-500">
+            Model {status.model}
+            {status.readers?.length ? ` · reading: ${status.readers.join(", ")}` : ""} · checked {when(status.checkedAt)}
+          </span>
+        )}
+        <Button className="ml-auto" busy={checking} disabled={checking} onClick={() => load(true)}>
+          Check now
+        </Button>
+      </div>
+      {status?.state === "down" && <Notice tone="error">{status.reason}</Notice>}
+      {status?.state === "off" && <Notice tone="info">{status.reason}</Notice>}
     </Section>
   );
 }

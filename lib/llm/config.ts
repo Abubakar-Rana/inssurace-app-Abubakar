@@ -61,6 +61,11 @@ export function llmConfigured(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY);
 }
 
+/** LLM_READING as a list, for status displays. Empty means AI reading is off. */
+export function enabledReaderList(): string[] {
+  return [...enabledReaders()];
+}
+
 function enabledReaders(): Set<string> {
   return new Set(
     (process.env.LLM_READING ?? "")

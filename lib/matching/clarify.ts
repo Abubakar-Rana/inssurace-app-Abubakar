@@ -33,6 +33,7 @@
  */
 
 import { readIdentifiers, type Identifiers } from "./identifier";
+import { HOLDER_QUESTION_LINES } from "./holder";
 import type { Candidate } from "./resolve";
 
 /** Off switch, so an agency that would rather not write to requesters can say so. */
@@ -77,6 +78,74 @@ export function composeClarification(
     ``,
     `This message was sent automatically because the request was ambiguous. No`,
     `certificate has been issued.`,
+    ``,
+    producerName,
+  ].join("\n");
+}
+
+/**
+ * One question covering whatever is missing: which insured, who the holder is,
+ * or both. Asking twice in one thread reads as a malfunction, so when both are
+ * missing they go in the same message.
+ *
+ * Insured only -> exactly `composeClarification`, unchanged.
+ */
+export function composeQuestion(parts: {
+  insured?: { askedFor: string; candidates: Candidate[] };
+  holder?: boolean;
+  producerName: string;
+}): string {
+  const { insured, holder, producerName } = parts;
+  if (insured && !holder) return composeClarification(insured.askedFor, insured.candidates, producerName);
+
+  const holderBlock = [
+    `Please reply with the certificate holder's details:`,
+    ``,
+    ...HOLDER_QUESTION_LINES.map((line) => `  ${line}`),
+  ];
+
+  if (!insured) {
+    return [
+      `Thanks for your request.`,
+      ``,
+      `Before we can issue the certificate we need to know who the certificate`,
+      `holder is: the party the certificate should be issued to (for example the`,
+      `broker, shipper or lender that asked for it). Your email did not say.`,
+      ``,
+      ...holderBlock,
+      ``,
+      `We will issue the certificate as soon as we hear back.`,
+      ``,
+      `This message was sent automatically. No certificate has been issued.`,
+      ``,
+      producerName,
+    ].join("\n");
+  }
+
+  const names = insured.candidates.slice(0, 4).map((c) => `  - ${c.legalName}`);
+  return [
+    `Thanks for your request.`,
+    ``,
+    `Before we can issue the certificate we need two things from you.`,
+    ``,
+    `1. Which company the certificate is for. "${insured.askedFor}" matches more`,
+    `   than one of our insureds:`,
+    ``,
+    ...names,
+    ``,
+    `   Please give the carrier's USDOT number (for example: USDOT 1234567) or`,
+    `   MC number (for example: MC 123456), or the company's full legal name`,
+    `   exactly as it appears above.`,
+    ``,
+    `2. Who the certificate holder is: the party the certificate should be`,
+    `   issued to.`,
+    ``,
+    ...holderBlock,
+    ``,
+    `We will issue the certificate as soon as we hear back.`,
+    ``,
+    `This message was sent automatically because the request was incomplete.`,
+    `No certificate has been issued.`,
     ``,
     producerName,
   ].join("\n");

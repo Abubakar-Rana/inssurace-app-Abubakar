@@ -518,6 +518,14 @@ export const coiRequests = pgTable(
      */
     clarificationSentAt: timestamp("clarification_sent_at", { withTimezone: true }),
     /**
+     * When the system asked the requester who the CERTIFICATE HOLDER is.
+     *
+     * The holder is only ever what the requester stated; when they stated none,
+     * we ask rather than assume. Set once and never cleared, for the same reason
+     * as `clarificationSentAt`: one question, never a second.
+     */
+    holderRequestedAt: timestamp("holder_requested_at", { withTimezone: true }),
+    /**
      * When a reviewer first opened this request.
      *
      * Null means nobody has looked at it yet, which is what the unread count on

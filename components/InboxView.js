@@ -75,12 +75,19 @@ function reasonFor(req) {
   if (req.autoSendError) {
     return `Automatic sending stopped · ${req.autoSendError}`;
   }
+  if (req.status === "awaitingRequester" && req.insuredName) {
+    return `${req.insuredName} · asked the requester who the certificate holder is`;
+  }
   if (req.insuredName) {
     return [req.insuredName, req.clientNumber && `#${req.clientNumber}`, req.certificateStatus === "issued" ? "issued" : req.certificateId && "draft"]
       .filter(Boolean)
       .join(" · ");
   }
-  if (req.status === "awaitingRequester") return "Asked the requester which company they mean";
+  if (req.status === "awaitingRequester") {
+    return req.holderRequested
+      ? "Asked the requester which company they mean and who the certificate holder is"
+      : "Asked the requester which company they mean";
+  }
   if (req.status === "new" || req.status === "interpreting") return "Reading the email…";
   if (req.matchConfidence === "ambiguous") return "More than one client fits that name";
   if (req.matchConfidence === "clarificationUnclear") return "The reply didn't resolve the company";

@@ -1,0 +1,1 @@
+ALTER TABLE "coi_requests" ADD COLUMN "holder_requested_at" timestamp with time zone;

@@ -26,7 +26,7 @@ import { coiRequests } from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { extractInsuredNames, type EmailInput, type Extraction } from "./extract";
 import { resolveClient, type Candidate, type MatchDecision } from "./resolve";
-import { resolveByIdentifier, type Identifiers } from "./identifier";
+import { readIdentifiers, resolveByIdentifier, type Identifiers } from "./identifier";
 import { llmMode } from "@/lib/llm/config";
 import { llmModel } from "@/lib/llm/config";
 import { insuredText, readInsuredWithLlm } from "@/lib/llm/insured";
@@ -111,8 +111,12 @@ export async function interpret(
    * unique and USDOT/MC numbers are. It matches one client exactly or not at
    * all — there is no fuzzy matching on an identifier.
    */
-  if (model.identifiers.dot || model.identifiers.mc) {
-    const byNumber = await resolveByIdentifier(tenantId, model.identifiers, tx);
+  // The model's numbers first, then the pattern reader's own — so a request
+  // that already carries its MC/DOT number is settled exactly even when the
+  // model is off or unreachable, and never has to be asked about.
+  for (const ids of [model.identifiers, readIdentifiers(insuredText(email))]) {
+    if (!ids.dot && !ids.mc) continue;
+    const byNumber = await resolveByIdentifier(tenantId, ids, tx);
     if (byNumber) {
       return {
         decision: "matched",
@@ -131,18 +135,6 @@ export async function interpret(
   const extracted: Extraction[] = [...model.names];
   for (const candidate of patternNames) {
     if (!extracted.some((e) => e.name.toLowerCase() === candidate.name.toLowerCase())) extracted.push(candidate);
-  }
-
-  if (!extracted.length) {
-    return {
-      decision: "noMatch",
-      clientId: null,
-      clientName: null,
-      usedName: null,
-      extracted: [],
-      candidates: [],
-      reason: "The email does not say which company the certificate is for.",
-    };
   }
 
   // Try candidates in order of how explicitly the email named them. The first
@@ -180,6 +172,39 @@ export async function interpret(
   }
 
   if (bestAmbiguous) return bestAmbiguous;
+
+  // LAST RESORT: a one-word name — "COI for smartways". One word is never
+  // enough to issue on, so whatever it resolves to becomes a QUESTION: with two
+  // or more candidates the requester is asked for the USDOT/MC number; with one,
+  // a reviewer confirms it. It can never produce `matched`.
+  const words = extractInsuredNames(email, { allowSingleWord: true }).filter(
+    (e) => e.singleWord && !extracted.some((x) => x.name.toLowerCase() === e.name.toLowerCase())
+  );
+  for (const word of words) {
+    const resolved = await resolveClient(tenantId, word.name, tx);
+    if (resolved.decision === "noMatch") continue;
+    return {
+      decision: "ambiguous",
+      clientId: null,
+      clientName: null,
+      usedName: word.name,
+      extracted: [...extracted, word],
+      candidates: resolved.candidates,
+      reason: `Read only the single word "${word.name}" from the email, which is not enough to issue a certificate on. ${resolved.reason}`,
+    };
+  }
+
+  if (!extracted.length) {
+    return {
+      decision: "noMatch",
+      clientId: null,
+      clientName: null,
+      usedName: null,
+      extracted: [],
+      candidates: [],
+      reason: "The email does not say which company the certificate is for.",
+    };
+  }
 
   return {
     decision: "noMatch",

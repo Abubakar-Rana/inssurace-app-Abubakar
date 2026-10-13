@@ -18,11 +18,15 @@ import { coiRequests, producers } from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { sendReply, DeliveryBlocked, assertDeliverable, AUTO_HEADER } from "@/lib/gmail/send";
 import { generateDraft } from "@/lib/certificate/service";
+import { withReadingContext } from "@/lib/llm/readingLog";
+import { FOLLOW_UP_SEPARATOR, ownWords } from "@/lib/llm/messages";
 import { interpret } from "./interpret";
 import { resolveByIdentifier } from "./identifier";
+import { upsertHolder } from "./holder";
+import { readHolder } from "./holderReader";
 import {
   clarificationEnabled,
-  composeClarification,
+  composeQuestion,
   readClarification,
 } from "./clarify";
 import type { Candidate } from "./resolve";
@@ -30,6 +34,12 @@ import type { Candidate } from "./resolve";
 export interface ClarifyOutcome {
   asked: boolean;
   reason: string;
+}
+
+/** What to put to the requester: which insured, who the holder is, or both. */
+export interface AskParts {
+  insured?: { askedFor: string; candidates: Candidate[] };
+  holder?: boolean;
 }
 
 /**
@@ -46,13 +56,28 @@ export async function askRequester(
   askedFor: string,
   candidates: Candidate[]
 ): Promise<ClarifyOutcome> {
+  return askRequesterFor(tenantId, requestId, { insured: { askedFor, candidates } });
+}
+
+/**
+ * Ask for whatever is missing, in ONE message: the insured's USDOT/MC number
+ * when the name fits more than one client, the certificate holder when the
+ * request named none, or both.
+ */
+export async function askRequesterFor(
+  tenantId: string,
+  requestId: string,
+  parts: AskParts
+): Promise<ClarifyOutcome> {
   if (!clarificationEnabled()) {
     return { asked: false, reason: "clarification disabled by configuration" };
   }
   // Nothing to choose between. If the resolver refused for any other reason,
   // naming a single candidate would be leading the witness.
-  if (candidates.length < 2) {
-    return { asked: false, reason: "not an ambiguity between two or more insureds" };
+  let insured = parts.insured && parts.insured.candidates.length >= 2 ? parts.insured : undefined;
+  let holder = Boolean(parts.holder);
+  if (!insured && !holder) {
+    return { asked: false, reason: parts.insured ? "not an ambiguity between two or more insureds" : "nothing to ask" };
   }
 
   const request = await withTenant(tenantId, async (tx) => {
@@ -63,7 +88,9 @@ export async function askRequester(
 
   // Ask once. A second unanswered question in the same thread reads as a
   // malfunction, and the reviewer path is still open either way.
-  if (request.clarificationSentAt) {
+  if (insured && request.clarificationSentAt) insured = undefined;
+  if (holder && request.holderRequestedAt) holder = false;
+  if (!insured && !holder) {
     return { asked: false, reason: "already asked" };
   }
 
@@ -84,7 +111,7 @@ export async function askRequester(
     return p?.name ?? "Certificate Department";
   });
 
-  const text = composeClarification(askedFor, candidates, producerName);
+  const text = composeQuestion({ insured, holder, producerName });
 
   // Sent BEFORE the database records it, for the same reason certificate
   // delivery is: if the send fails, nothing is written and the request stays
@@ -114,28 +141,38 @@ export async function askRequester(
       .update(coiRequests)
       .set({
         status: "awaitingRequester",
-        clarificationSentAt: new Date(),
-        matchConfidence: "awaitingRequester",
+        // A holder-only question leaves the insured match ("matched") as it
+        // was: it is still what auto-send checks once the holder arrives.
+        ...(insured ? { clarificationSentAt: new Date(), matchConfidence: "awaitingRequester" } : {}),
+        ...(holder ? { holderRequestedAt: new Date() } : {}),
       })
       .where(eq(coiRequests.id, requestId));
 
     await audit(tx, {
       tenantId,
       actorUserId: null,
-      action: "request.clarification_sent",
+      action: insured ? "request.clarification_sent" : "request.holder_requested",
       subjectType: "coi_request",
       subjectId: requestId,
       after: {
         to: request.fromAddr,
-        askedFor,
-        // Names only. The candidates are already implied by what the requester
-        // wrote, and the audit log holds no more than it must.
-        candidates: candidates.slice(0, 4).map((c) => c.legalName),
+        asked: [insured ? "insured" : null, holder ? "holder" : null].filter(Boolean),
+        ...(insured
+          ? {
+              askedFor: insured.askedFor,
+              // Names only. The candidates are already implied by what the
+              // requester wrote, and the audit log holds no more than it must.
+              candidates: insured.candidates.slice(0, 4).map((c) => c.legalName),
+            }
+          : {}),
       },
     });
   });
 
-  return { asked: true, reason: `asked ${request.fromAddr} which insured was meant` };
+  const what = [insured ? "which insured was meant" : "", holder ? "who the certificate holder is" : ""]
+    .filter(Boolean)
+    .join(" and ");
+  return { asked: true, reason: `asked ${request.fromAddr} ${what}` };
 }
 
 /**
@@ -249,8 +286,136 @@ export interface AnswerOutcome {
 export async function applyAnswer(
   tenantId: string,
   request: typeof coiRequests.$inferSelect,
-  replyText: string
+  replyText: string,
+  /** The reply's Message-ID, recorded so the same reply is never applied twice. */
+  replyMessageId?: string
 ): Promise<AnswerOutcome> {
+  // What the question asked. The insured is missing until a client is linked;
+  // the holder is missing when we asked for one and none is linked yet.
+  const awaitingInsured = !request.clientId;
+  const awaitingHolder = !request.holderId && Boolean(request.holderRequestedAt);
+
+  let clientId: string | null = request.clientId;
+  let clientName: string | null = null;
+  let how = "";
+  let candidates: Candidate[] = [];
+
+  if (awaitingInsured) {
+    ({ clientId, clientName, how, candidates } = await answerInsured(tenantId, request, replyText));
+  }
+
+  // ---- the certificate holder, when that was asked too ----
+  let holderId = request.holderId;
+  let holderHow = "";
+  if (awaitingHolder) {
+    const stated = await withReadingContext({ tenantId, requestId: request.id, messageId: request.gmailMessageId }, () =>
+      readHolder(replyText, {
+        // A bare name answers the holder question only when it was the ONLY
+        // question; alongside "which company?" it could answer either.
+        answerToQuestion: !awaitingInsured,
+        exclude: candidates.map((c) => c.legalName),
+      })
+    );
+    if (stated) {
+      holderId = await withTenant(tenantId, (tx) =>
+        upsertHolder(
+          tx,
+          tenantId,
+          { name: stated.name, addressLines: stated.addressLines, source: "stated", evidence: stated.evidence },
+          stated.email || null
+        )
+      );
+      holderHow = `certificate holder "${stated.name}" supplied by the requester`;
+    } else {
+      holderHow = "the reply does not name a certificate holder";
+      console.warn(
+        `[clarify] no certificate holder in the answer for request ${request.id}\n` +
+          `[clarify]   raw reply : ${JSON.stringify(replyText.slice(0, 400))}`
+      );
+    }
+  }
+
+  // The reply joins the request's own text, exactly as a follow-up does. Its
+  // instructions then count: "MC 1500002 — and please include the VINs" is a
+  // request for VINs, and the VIN reader only ever reads the stored body. Only
+  // the requester's own words: our quoted question stays out.
+  const own = ownWords(replyText ?? "");
+  const bodyText = own ? [request.bodyText, own].filter(Boolean).join(FOLLOW_UP_SEPARATOR) : request.bodyText;
+
+  await withTenant(tenantId, async (tx) => {
+    await tx
+      .update(coiRequests)
+      .set({
+        clientId,
+        holderId,
+        bodyText,
+        status: clientId ? "ready" : "needsMatch",
+        matchConfidence: awaitingInsured
+          ? clientId
+            ? "requesterConfirmed"
+            : "clarificationUnclear"
+          : request.matchConfidence,
+      })
+      .where(eq(coiRequests.id, request.id));
+
+    await audit(tx, {
+      tenantId,
+      actorUserId: null,
+      action: awaitingInsured
+        ? clientId
+          ? "request.clarified"
+          : "request.clarification_unclear"
+        : holderId
+          ? "request.holder_supplied"
+          : "request.holder_unclear",
+      subjectType: "coi_request",
+      subjectId: request.id,
+      // How it was settled, never the reply text. The body is purgeable and
+      // must not be copied into an immutable log. The reply's id is what
+      // ingest's alreadyIngested() checks, so a second look at the same reply
+      // is recognised instead of being taken for a follow-up.
+      after: {
+        clientId,
+        clientName,
+        how: how || null,
+        holderId,
+        holderHow: holderHow || null,
+        messageId: replyMessageId ?? null,
+      },
+    });
+  });
+
+  // Draft it, exactly as polling would have if nothing had been missing.
+  //
+  // Leaving the request at "ready" with no document would mean the requester
+  // answered our question and then still waited for someone to notice — the
+  // delay this whole exchange exists to remove. A holder that is STILL missing
+  // gives a draft with an empty holder box for a reviewer to complete; auto-send
+  // refuses that draft (lib/certificate/autoSend.ts).
+  //
+  // Never fatal: a drafting failure leaves a matched request a reviewer can
+  // open, same as everywhere else.
+  if (clientId) {
+    try {
+      await generateDraft({ tenantId, actorUserId: null }, request.id);
+    } catch (err) {
+      console.warn(`[clarify] resolved but could not draft: ${(err as Error).message}`);
+    }
+  }
+
+  return {
+    resolved: Boolean(clientId),
+    clientName,
+    reason: [how, holderHow].filter(Boolean).join("; "),
+  };
+}
+
+/** Settle WHICH INSURED from a reply — the original clarification exchange. */
+async function answerInsured(
+  tenantId: string,
+  request: typeof coiRequests.$inferSelect,
+  replyText: string
+): Promise<{ clientId: string | null; clientName: string | null; how: string; candidates: Candidate[] }> {
   // Re-run interpretation on the ORIGINAL request to recover the candidates the
   // question was about. They are not stored: keeping a snapshot of them would
   // go stale against the client list, and re-deriving is cheap and always
@@ -295,46 +460,7 @@ export async function applyAnswer(
     );
   }
 
-  await withTenant(tenantId, async (tx) => {
-    await tx
-      .update(coiRequests)
-      .set({
-        clientId,
-        status: clientId ? "ready" : "needsMatch",
-        matchConfidence: clientId ? "requesterConfirmed" : "clarificationUnclear",
-      })
-      .where(eq(coiRequests.id, request.id));
-
-    await audit(tx, {
-      tenantId,
-      actorUserId: null,
-      action: clientId ? "request.clarified" : "request.clarification_unclear",
-      subjectType: "coi_request",
-      subjectId: request.id,
-      // How it was settled, never the reply text. The body is purgeable and
-      // must not be copied into an immutable log.
-      after: { clientId, clientName, how },
-    });
-  });
-
-  // Draft it, exactly as polling would have if the name had been unambiguous.
-  //
-  // Identifying the insured was the only thing missing. Leaving the request at
-  // "ready" with no document would mean the requester answered our question and
-  // then still waited for someone to notice — which is the delay this whole
-  // exchange exists to remove.
-  //
-  // Never fatal: a drafting failure leaves a matched request a reviewer can
-  // open, same as everywhere else.
-  if (clientId) {
-    try {
-      await generateDraft({ tenantId, actorUserId: null }, request.id);
-    } catch (err) {
-      console.warn(`[clarify] resolved but could not draft: ${(err as Error).message}`);
-    }
-  }
-
-  return { resolved: Boolean(clientId), clientName, reason: how };
+  return { clientId, clientName, how, candidates: original.candidates };
 }
 
 /** Requests still waiting on a reply, for the dashboard. */

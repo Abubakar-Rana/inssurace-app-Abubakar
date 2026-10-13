@@ -56,8 +56,8 @@
  */
 
 import { readJson } from "./client";
+import { messagesOf } from "./messages";
 import {
-  FOLLOW_UP_SEPARATOR,
   HOLDER_QUESTION_LINES,
   NO_HOLDER,
   fitHolderAddress,
@@ -66,45 +66,8 @@ import {
   type StatedHolder,
 } from "@/lib/matching/holder";
 
-// ---------------------------------------------------------------- the requester's own words
-
-/** "On Mon, 1 Sep 2026 at 09:14, Certificates <c@x> wrote:" — on its own line OR flattened. */
-const WROTE = /\bon\s[^\n]{1,200}?\bwrote:/i;
-const ORIGINAL = /-{3,}\s*original\s+message|_{5,}/i;
-const FROM_HEADER = /^[ \t]*from:\s/im;
-
-/**
- * The part of one message that is the requester's own words.
- *
- * Exported because the model is shown exactly this text, and the guards check
- * its answer against exactly this text. What it never sees it cannot copy.
- */
-export function ownWords(message: string): string {
-  let cut = message.length;
-
-  const wrote = message.search(WROTE);
-  if (wrote >= 0) cut = Math.min(cut, wrote);
-
-  const original = message.search(ORIGINAL);
-  if (original >= 0) cut = Math.min(cut, original);
-
-  // A "From:" block at the very top is a client that quotes ABOVE the reply;
-  // cutting there would remove the reply itself. The same rule as holder.ts.
-  const from = message.search(FROM_HEADER);
-  if (from > 0) cut = Math.min(cut, from);
-
-  return message
-    .slice(0, cut)
-    .split(/\r?\n/)
-    .filter((line) => !/^\s*>/.test(line))
-    .join("\n")
-    .trim();
-}
-
-/** Every message in a request body, oldest first, reduced to the requester's own words. */
-export function messagesOf(text: string | null | undefined): string[] {
-  return (text ?? "").split(FOLLOW_UP_SEPARATOR).map(ownWords);
-}
+// The requester's own words — shared with the VIN reader, see ./messages.ts.
+export { ownWords, messagesOf } from "./messages";
 
 // ---------------------------------------------------------------- finding a value verbatim
 
@@ -425,8 +388,20 @@ export const HOLDER_SCHEMA: Record<string, unknown> = {
   },
 };
 
+export interface HolderReadContext {
+  /**
+   * The text is the requester's reply to OUR question asking who the holder
+   * is, and that was the only question. A name they give as their answer is
+   * then the stated holder even without the words "certificate holder".
+   */
+  answerToQuestion?: boolean;
+}
+
 /** The request for one reading. The model sees only the requester's own words. */
-export function holderPrompt(text: string | null | undefined): {
+export function holderPrompt(
+  text: string | null | undefined,
+  context: HolderReadContext = {}
+): {
   system: string;
   user: string;
   schema: Record<string, unknown>;
@@ -436,7 +411,16 @@ export function holderPrompt(text: string | null | undefined): {
     messages.length > 1
       ? messages.map((m, i) => `=== MESSAGE ${i + 1} ===\n${m}`).join("\n\n")
       : (messages[0] ?? "");
-  return { system: SYSTEM, user: ["EMAIL:", "---", body, "---"].join("\n"), schema: HOLDER_SCHEMA };
+  const lead = context.answerToQuestion
+    ? [
+        "CONTEXT: this is the requester's reply to the agency's question asking who the",
+        "certificate holder is. A company or person they give as their answer IS the stated",
+        "certificate holder, even without the words 'certificate holder'. Every other rule",
+        "still applies.",
+        "",
+      ]
+    : [];
+  return { system: SYSTEM, user: [...lead, "EMAIL:", "---", body, "---"].join("\n"), schema: HOLDER_SCHEMA };
 }
 
 /**
@@ -447,11 +431,14 @@ export function holderPrompt(text: string | null | undefined): {
 export type HolderLlmReading = { reached: true; verdict: HolderVerdict } | { reached: false };
 
 /** Read a holder with the model. Never throws. */
-export async function readHolderWithLlm(text: string | null | undefined): Promise<HolderLlmReading> {
+export async function readHolderWithLlm(
+  text: string | null | undefined,
+  context: HolderReadContext = {}
+): Promise<HolderLlmReading> {
   // Nothing of the requester's own to read: every word was quoted mail.
   if (!messagesOf(text).some(Boolean)) return { reached: false };
 
-  const { system, user, schema } = holderPrompt(text);
+  const { system, user, schema } = holderPrompt(text, context);
   const result = await readJson({ system, user, schema, label: "holder", maxTokens: 400 });
   if (!result) return { reached: false };
 

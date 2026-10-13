@@ -24,11 +24,12 @@
 
 import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { withTenant } from "@/lib/db/client";
-import { certificates, coiRequests, tenants } from "@/db/schema";
+import { certificates, coiRequests, tenants, vehicles } from "@/db/schema";
+import { wantsVins } from "@/lib/matching/vinRequest";
 import { audit } from "@/lib/audit";
 import { publish } from "@/lib/events";
 import type { Session } from "@/lib/auth/session";
-import { approve } from "./service";
+import { approve, ServiceError } from "./service";
 import { deliverCertificate } from "./deliver";
 import { renderCertificatePdf, sha256 } from "./render";
 
@@ -90,6 +91,15 @@ export async function maybeAutoSend(tenantId: string, requestId: string): Promis
         // Not a failure: an uncertain match is exactly what a person is for.
         return { skip: `match is "${request.matchConfidence}", which needs a reviewer` };
       }
+      // The holder is only ever what the requester STATED. No statement, no
+      // automatic certificate: one addressed to nobody — or to the sender's
+      // sign-off — is exactly the document this switch must never send.
+      if (!request.holderId) {
+        return {
+          needsReview:
+            "No certificate holder: the requester did not say who the certificate is for. Add the holder on the certificate, then issue it.",
+        };
+      }
 
       // ONE AUTOMATIC DOCUMENT PER REQUEST.
       //
@@ -118,7 +128,7 @@ export async function maybeAutoSend(tenantId: string, requestId: string): Promis
       }
 
       const [draft] = await tx
-        .select({ id: certificates.id })
+        .select({ id: certificates.id, snapshot: certificates.snapshot })
         .from(certificates)
         .where(and(eq(certificates.requestId, requestId), eq(certificates.status, "draft")))
         .orderBy(desc(certificates.revision))
@@ -128,6 +138,31 @@ export async function maybeAutoSend(tenantId: string, requestId: string): Promis
         // build one (usually no active policy for that insured). That IS the
         // agency's to fix, so it is flagged rather than skipped quietly.
         return { needsReview: "Could not prepare a certificate — check this insured has an active policy." };
+      }
+      // Belt and braces: the document itself, not just the row, must name one.
+      if (!(draft.snapshot as { holder?: { name?: string } } | null)?.holder?.name?.trim()) {
+        return {
+          needsReview: "The prepared certificate has no holder. Add the holder on the certificate, then issue it.",
+        };
+      }
+      // ASKED FOR VINs, AND THE INSURED HAS THEM: the document must carry them.
+      // An insured with no VINs on file is issued as normal, with nothing about
+      // VINs on it — there is nothing to list. What is refused is a certificate
+      // that SHOULD list VINs and does not (drafted before the vehicles were
+      // added, for instance).
+      if (request.bodyText && wantsVins({ subject: request.subject, body: request.bodyText }).wanted) {
+        const vins = (
+          await tx.select({ vin: vehicles.vin }).from(vehicles).where(eq(vehicles.clientId, request.clientId))
+        )
+          .map((v) => v.vin?.trim())
+          .filter(Boolean) as string[];
+        const printed = JSON.stringify(draft.snapshot ?? "");
+        if (vins.length && !vins.some((vin) => printed.includes(vin))) {
+          return {
+            needsReview:
+              "The requester asked for VIN numbers, but the prepared certificate does not list them. Prepare it again, then issue it.",
+          };
+        }
       }
       return { certificateId: draft.id, tenantName: tenant.name, matchConfidence: request.matchConfidence };
     });
@@ -177,6 +212,12 @@ export async function maybeAutoSend(tenantId: string, requestId: string): Promis
     announce(tenantId, requestId, true);
     return { sent: true, to: delivered.to };
   } catch (err) {
+    // Another worker issued this draft first — approve()'s row lock refused the
+    // second. Not a failure, and flagging it would put a red error on a request
+    // whose certificate went out exactly once.
+    if (err instanceof ServiceError && err.status === 409) {
+      return { sent: false, reason: `already handled: ${err.message}` };
+    }
     const reason = (err as Error).message;
     console.warn(`[auto-send] request ${requestId}: ${reason} — left for a reviewer`);
     await flag(tenantId, requestId, reason);

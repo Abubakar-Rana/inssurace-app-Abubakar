@@ -67,8 +67,6 @@ const DEBUG = process.env.GMAIL_WATCH_DEBUG === "1";
  */
 const SUPERVISE_SECONDS = Number(process.env.GMAIL_SUPERVISE_SECONDS ?? 30);
 
-let running = false;
-
 /**
  * One watch loop per agency mailbox.
  *
@@ -85,7 +83,26 @@ interface WatchHandle {
   client: ImapFlow | null;
 }
 
-const watchers = new Map<string, WatchHandle>();
+declare global {
+  // eslint-disable-next-line no-var
+  var __certflowWatcher: { running: boolean; watchers: Map<string, WatchHandle> } | undefined;
+}
+
+/**
+ * PROCESS-WIDE, not module-wide.
+ *
+ * `next dev` re-evaluates a server module whenever it, or anything it imports,
+ * is recompiled. A module-level `running` flag then read `false` again while
+ * the previous loops were still alive, and the next dashboard to connect to
+ * /api/events started a SECOND watcher. Every email was then ingested,
+ * interpreted, asked about, drafted and auto-sent twice. globalThis survives the
+ * re-evaluation — the same reason lib/db/client.ts keeps its pool there.
+ *
+ * (After editing pipeline code in dev, restart the server: the surviving loop
+ * keeps running the code it was started with.)
+ */
+const state = (globalThis.__certflowWatcher ??= { running: false, watchers: new Map<string, WatchHandle>() });
+const watchers = state.watchers;
 
 /**
  * Start watching. Safe to call repeatedly — the second call does nothing.
@@ -95,12 +112,12 @@ const watchers = new Map<string, WatchHandle>();
  * retries in the background.
  */
 export function startWatching(): void {
-  if (running) return;
+  if (state.running) return;
   if (process.env.GMAIL_WATCH === "0") {
     console.log("[watcher] disabled by GMAIL_WATCH=0");
     return;
   }
-  running = true;
+  state.running = true;
   void supervise();
 }
 

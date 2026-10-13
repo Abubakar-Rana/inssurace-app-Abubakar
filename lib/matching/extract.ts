@@ -37,6 +37,12 @@ export interface Extraction {
   weight: number;
   /** Where it came from, for the audit trail and for a human reviewing. */
   evidence: string;
+  /**
+   * A one-word name ("COI for smartways"). Only produced on request — see
+   * `allowSingleWord` — and never enough to match on: interpret.ts may use it
+   * to ASK which company was meant, never to pick one.
+   */
+  singleWord?: boolean;
 }
 
 /** How much to trust each phrasing, most explicit first. */
@@ -76,7 +82,7 @@ const MAX_NAME_WORDS = 8;
  *
  * Returns "" when nothing name-like survives — the caller drops it.
  */
-function cleanName(raw: string): string {
+function cleanName(raw: string, allowSingleWord = false): string {
   let text = raw
     .replace(/[\r\n]+/g, " ")
     .replace(/\s+/g, " ")
@@ -112,8 +118,10 @@ function cleanName(raw: string): string {
   const name = kept.join(" ").replace(/[,\s]+$/u, "").trim();
 
   // One bare word is almost never enough to identify a company, and is the
-  // shape most likely to be a false positive ("a COI for Monday").
-  if (!name || name.split(" ").length < 2) return "";
+  // shape most likely to be a false positive ("a COI for Monday"). It is kept
+  // only when the caller asked, and then only as something to ask about.
+  if (!name) return "";
+  if (name.split(" ").length < 2 && !(allowSingleWord && name.length >= 3)) return "";
   return name;
 }
 
@@ -174,7 +182,10 @@ export function requestText(email: EmailInput): string {
     .join("\n\n");
 }
 
-export function extractInsuredNames(email: EmailInput): Extraction[] {
+export function extractInsuredNames(
+  email: EmailInput,
+  options: { allowSingleWord?: boolean } = {}
+): Extraction[] {
   const sections: { text: string; label: string }[] = [];
   if (email.subject) sections.push({ text: email.subject, label: "subject" });
   if (email.body) sections.push({ text: bodyAboveSignature(email.body), label: "body" });
@@ -187,18 +198,21 @@ export function extractInsuredNames(email: EmailInput): Extraction[] {
       // Patterns are /g — reset between uses or matching resumes mid-string.
       re.lastIndex = 0;
       for (const match of text.matchAll(re)) {
-        const name = cleanName(match[1] ?? "");
+        const name = cleanName(match[1] ?? "", options.allowSingleWord);
         if (!name) continue;
 
         const key = name.toLowerCase();
         if (seen.has(key)) continue;
         seen.add(key);
 
+        const singleWord = !name.includes(" ");
         found.push({
           name,
           source,
-          weight: WEIGHTS[source],
+          // Below every real phrasing, so a one-word reading never outranks one.
+          weight: singleWord ? WEIGHTS[source] * 0.5 : WEIGHTS[source],
           evidence: `${label}: "${match[0].trim().slice(0, 90)}"`,
+          ...(singleWord ? { singleWord: true } : {}),
         });
       }
     }

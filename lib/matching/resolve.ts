@@ -185,6 +185,34 @@ async function rank(tx: TenantDb, query: string): Promise<Candidate[]> {
     .slice(0, SHORTLIST);
 }
 
+/**
+ * NAME FAMILIES: two clients whose names are the same once suffixes and spacing
+ * are set aside — "SmartWays Inc" / "SmartWays LLC" — or where one name is the
+ * other with words added — "SmartWays LLC" / "Smart Way Solutions Inc".
+ *
+ * A score can separate them; it cannot say which one the requester meant. The
+ * suffix is the least reliable part of a name people type (see normalizeName),
+ * so a request that lands on one member of a family is answered with a question
+ * — "which USDOT or MC number?" — never with a certificate. Asking more often is
+ * the safe direction; certifying the sibling's policy is not recoverable.
+ */
+const FAMILY_MIN = 5;
+
+function familyKey(name: string): string {
+  return normalizeName(name).replace(/\s+/g, "").replace(/s$/, "");
+}
+
+export function sameFamily(a: string, b: string): boolean {
+  const x = familyKey(a);
+  const y = familyKey(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  // A prefix only counts when it is long enough to be a name rather than a
+  // syllable: "abc" must not make "ABC Freight" a sibling of "ABCD Transport".
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  return short.length >= FAMILY_MIN && long.startsWith(short);
+}
+
 /** Apply the abstention rules to a ranked list. */
 export function decide(candidates: Candidate[]): Resolution {
   const viable = candidates.filter((c) => c.score >= FLOOR);
@@ -215,6 +243,20 @@ export function decide(candidates: Candidate[]): Resolution {
       client: null,
       candidates: viable,
       reason: `"${best.legalName}" (${best.score.toFixed(2)}) and "${next.legalName}" (${next.score.toFixed(2)}) are too close to call.`,
+    };
+  }
+
+  // A clear leader that has a sibling in the same name family still is not an
+  // answer. Only the family is put to the requester, not every weak candidate.
+  const siblings = viable.filter((c) => c !== best && sameFamily(best.legalName, c.legalName));
+  if (siblings.length) {
+    return {
+      decision: "ambiguous",
+      client: null,
+      candidates: [best, ...siblings],
+      reason: `"${best.legalName}" shares its name with ${siblings
+        .map((s) => `"${s.legalName}"`)
+        .join(", ")}; a USDOT or MC number is needed to tell them apart.`,
     };
   }
 

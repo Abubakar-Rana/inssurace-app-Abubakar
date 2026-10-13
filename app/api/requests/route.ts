@@ -31,6 +31,8 @@ export const GET = route(async (session) => {
              r.status,
              r.match_confidence as "matchConfidence",
              r.auto_send_error  as "autoSendError",
+             -- Asked the requester who the certificate holder is, still unanswered.
+             (r.holder_requested_at is not null and r.holder_id is null) as "holderRequested",
              -- Null until a reviewer opens it. This is what the unread count
              -- on the dashboard counts.
              to_char(r.viewed_at at time zone 'UTC',

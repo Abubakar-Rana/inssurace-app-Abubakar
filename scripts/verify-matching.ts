@@ -13,7 +13,7 @@ import "@/lib/env";
 import { eq } from "drizzle-orm";
 import { db, withTenant } from "@/lib/db/client";
 import { clientAliases, clients, tenants } from "@/db/schema";
-import { decide, normalizeName, resolveClient, type MatchDecision } from "@/lib/matching/resolve";
+import { decide, normalizeName, resolveClient, sameFamily, type MatchDecision } from "@/lib/matching/resolve";
 
 let failures = 0;
 
@@ -31,12 +31,17 @@ interface Case {
 }
 
 const CASES: Case[] = [
-  // ---- should match ----
-  { query: "Smart Way Solutions Inc", expect: "matched", client: "Smart Way Solutions Inc", why: "exact legal name" },
-  { query: "smart way solutions inc", expect: "matched", client: "Smart Way Solutions Inc", why: "case-insensitive" },
-  { query: "Smart Way Solutions, LLC", expect: "matched", client: "Smart Way Solutions LLC", why: "suffix decides it" },
-  { query: "SmartWay Solutions LLC", expect: "matched", client: "Smart Way Solutions LLC", why: "spacing does not, suffix does" },
-  { query: "Smart Way Soluitons Inc", expect: "matched", client: "Smart Way Solutions Inc", why: "transposed letters" },
+  // ---- a NAME FAMILY is asked about, even with the suffix written ----
+  //
+  // These used to match on the suffix ("suffix decides it"). The agency chose
+  // the stricter rule: when two clients share a name family, a USDOT or MC
+  // number decides, never the suffix someone typed — the seeded inbox itself
+  // carries a wrong-suffix spelling. See sameFamily() in lib/matching/resolve.ts.
+  { query: "Smart Way Solutions Inc", expect: "ambiguous", why: "exact name, but an LLC sibling exists" },
+  { query: "smart way solutions inc", expect: "ambiguous", why: "case-insensitive, same family" },
+  { query: "Smart Way Solutions, LLC", expect: "ambiguous", why: "the suffix no longer decides it" },
+  { query: "SmartWay Solutions LLC", expect: "ambiguous", why: "spacing and suffix, same family" },
+  { query: "Smart Way Soluitons Inc", expect: "ambiguous", why: "transposed letters, same family" },
 
   // ---- ambiguous BECAUSE the agency insures two companies with this name ----
   //
@@ -107,8 +112,8 @@ async function main() {
     console.log("\nnear-miss safety:");
     const ohio = await resolveClient(tenant.id, "Smart Way Solutions of Ohio");
     check(
-      "  distinguishes the Ohio entity",
-      ohio.decision === "matched" && ohio.client?.legalName === "Smart Way Solutions of Ohio Inc",
+      "  the Ohio entity is asked about, and is among the candidates",
+      ohio.decision === "ambiguous" && ohio.candidates.some((c) => c.legalName === "Smart Way Solutions of Ohio Inc"),
       ohio.reason
     );
 
@@ -141,6 +146,17 @@ async function main() {
   // Candidates are always returned, so a human sees the alternatives.
   const tie = decide([cand("A", 0.9), cand("B", 0.85)]);
   check("  ambiguous still lists candidates", tie.candidates.length === 2);
+
+  // ---- name families: a clear leader with a sibling is still a question ----
+  console.log("\nname families:");
+  check("  Inc / LLC are one family", sameFamily("SmartWays Inc", "SmartWays LLC"));
+  check("  added words are one family", sameFamily("SmartWays LLC", "Smart Way Solutions Inc"));
+  check("  unrelated names are not", !sameFamily("Meridian Logistics LLC", "Blue Creek Hauling LLC"));
+  check("  a short prefix is not a family", !sameFamily("ABC Freight", "ABCD Transport"));
+  const family = decide([cand("Smart Way Solutions Inc", 0.85), cand("SmartWays Inc", 0.43), cand("SmartWays LLC", 0.43)]);
+  check("  clear leader with siblings asks", family.decision === "ambiguous" && family.candidates.length === 3, family.reason);
+  const loner = decide([cand("Meridian Logistics LLC", 0.9), cand("Blue Creek Hauling LLC", 0.35)]);
+  check("  clear leader without siblings matches", loner.decision === "matched");
 
   // ---- aliases are what make the misspellings work ----
   const aliasCount = await withTenant(tenant.id, async (tx) =>

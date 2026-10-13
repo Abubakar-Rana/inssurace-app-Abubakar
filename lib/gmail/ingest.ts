@@ -17,18 +17,20 @@
  * in the result so a wrong skip is visible on the dashboard, not silent.
  */
 
-import { and, eq, sql } from "drizzle-orm";
-import { withTenant } from "@/lib/db/client";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { sqlClient, withTenant } from "@/lib/db/client";
 import { auditLog, coiRequests } from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { interpretRequest } from "@/lib/matching/interpret";
-import { extractHolder, upsertHolder } from "@/lib/matching/holder";
+import { upsertHolder } from "@/lib/matching/holder";
+import { readHolder } from "@/lib/matching/holderReader";
+import { withReadingContext } from "@/lib/llm/readingLog";
 import { generateDraft, ServiceError } from "@/lib/certificate/service";
 import { classifyEmail } from "./classify";
 import { followUpAction } from "./followUp";
 import {
   applyAnswer,
-  askRequester,
+  askRequesterFor,
   findLatestInThread,
   findRequestInThread,
   type AnswerOutcome,
@@ -86,7 +88,18 @@ const BODY_RETENTION_DAYS = 30;
  * wrong or reset, the worst outcome is that a fetch re-downloads messages the
  * unique index then rejects. That is why it can live in memory.
  */
-const watermark = new Map<string, { uid: number; uidValidity: string }>();
+const watermark = processMap<string, { uid: number; uidValidity: string }>("__certflowIngestWatermark");
+
+/**
+ * A Map shared by the whole PROCESS, not by one evaluation of this module.
+ * `next dev` re-evaluates server modules on recompile, and each route handler
+ * can hold its own copy; module-level maps then stop coalescing anything. See
+ * lib/gmail/watcher.ts for what that cost.
+ */
+function processMap<K, V>(key: string): Map<K, V> {
+  const g = globalThis as unknown as Record<string, Map<K, V> | undefined>;
+  return (g[key] ??= new Map<K, V>());
+}
 
 /** Insert one email as a request. Returns null when it is already stored. */
 /**
@@ -98,7 +111,7 @@ const watermark = new Map<string, { uid: number; uidValidity: string }>();
 async function storeEmail(
   tenantId: string,
   email: InboundEmail,
-  carryOver?: { clientId: string | null }
+  carryOver?: { clientId: string | null; holderId?: string | null }
 ): Promise<string | null> {
   return withTenant(tenantId, async (tx) => {
     const [existing] = await tx
@@ -111,19 +124,10 @@ async function storeEmail(
 
     const purgeAfter = new Date(Date.now() + BODY_RETENTION_DAYS * 24 * 60 * 60 * 1000);
 
-    // The certificate holder is whoever asked, and the only record of that is
-    // the email itself — see lib/matching/holder.ts.
-    const holderId = await upsertHolder(
-      tx,
-      tenantId,
-      extractHolder({
-        subject: email.subject,
-        body: email.body,
-        fromAddr: email.fromAddr,
-        fromName: email.fromName,
-      }),
-      email.fromAddr
-    );
+    // The certificate holder is read after the insert (resolveStatedHolder),
+    // from what the requester STATED — never assumed from the signature. A
+    // follow-up in a thread starts from the holder the conversation already has.
+    const holderId = carryOver?.holderId ?? null;
 
     const [row] = await tx
       .insert(coiRequests)
@@ -136,7 +140,11 @@ async function storeEmail(
         subject: email.subject,
         bodyText: email.body,
         receivedAt: email.receivedAt,
-        status: "new",
+        // Born CLAIMED by the worker inserting it. Were it `new`, the sweep in
+        // another watcher (interpretPending) could pick it up while this one is
+        // still interpreting it — two interpretations, two questions, two
+        // certificates. `new` is only for rows nobody is working on.
+        status: "interpreting",
         clientId: carryOver?.clientId ?? null,
         holderId,
         purgeAfter,
@@ -191,6 +199,7 @@ async function interpretAndDraft(
   asked?: boolean;
 }> {
   const interpretation = await interpretRequest(tenantId, requestId);
+  const holderId = await resolveStatedHolder(tenantId, requestId);
 
   // The request now exists and is interpreted, so it belongs on screen NOW.
   // Assembling its certificate takes several more database round trips, and
@@ -199,34 +208,54 @@ async function interpretAndDraft(
   // feels slow. The draft follows a moment later and announces itself again.
   onVisible?.();
 
-  if (interpretation.decision !== "matched") {
-    // AMBIGUOUS means the email named something that fits two of the agency's
-    // clients equally well. A reviewer cannot settle that either — the records
-    // do not say which of their own clients a stranger meant — but the
-    // requester can, in seconds. So ask them.
-    //
+  const matched = interpretation.decision === "matched";
+  // AMBIGUOUS means the email named something that fits two or more of the
+  // agency's clients — a near-tie, a name family (SmartWays Inc / LLC), or one
+  // bare word. A reviewer cannot settle that either — the records do not say
+  // which of their own clients a stranger meant — but the requester can, in
+  // seconds, with a USDOT or MC number. So ask them.
+  const askInsured = interpretation.decision === "ambiguous" && interpretation.candidates.length >= 2;
+  // No holder STATED: ask who it is, rather than print the sender's sign-off.
+  // Asked only where the request is otherwise going somewhere — matched, or
+  // being asked about anyway. An unmatched request is a reviewer's already.
+  const askHolder = !holderId && (matched || askInsured);
+
+  if (askInsured || askHolder) {
     // Never fatal. Every refusal, and any failure to send, leaves the request
     // in front of a reviewer exactly as before.
     let asked = false;
-    if (interpretation.decision === "ambiguous" && interpretation.candidates.length >= 2) {
-      try {
-        const outcome = await askRequester(
-          tenantId,
-          requestId,
-          interpretation.usedName ?? interpretation.extracted[0]?.name ?? "",
-          interpretation.candidates
-        );
-        asked = outcome.asked;
-        if (!outcome.asked) console.log(`[clarify] not asking: ${outcome.reason}`);
-      } catch (err) {
-        console.warn(`[clarify] could not ask the requester: ${(err as Error).message}`);
-      }
+    try {
+      const outcome = await askRequesterFor(tenantId, requestId, {
+        insured: askInsured
+          ? {
+              askedFor: interpretation.usedName ?? interpretation.extracted[0]?.name ?? "",
+              candidates: interpretation.candidates,
+            }
+          : undefined,
+        holder: askHolder,
+      });
+      asked = outcome.asked;
+      if (!outcome.asked) console.log(`[clarify] not asking: ${outcome.reason}`);
+    } catch (err) {
+      console.warn(`[clarify] could not ask the requester: ${(err as Error).message}`);
     }
+    // Matched but the holder question could not go out (already asked, or the
+    // requester cannot be emailed): draft with an EMPTY holder box for a
+    // reviewer. Auto-send refuses such a draft — see lib/certificate/autoSend.ts.
+    if (asked || !matched) {
+      return {
+        decision: interpretation.decision,
+        clientName: matched ? interpretation.clientName : null,
+        certificateNumber: null,
+        asked,
+      };
+    }
+  } else if (!matched) {
     return {
       decision: interpretation.decision,
       clientName: null,
       certificateNumber: null,
-      asked,
+      asked: false,
     };
   }
 
@@ -250,6 +279,58 @@ async function interpretAndDraft(
 }
 
 /**
+ * Link the certificate holder the request STATES, and return the request's
+ * holder id — or null when none was stated and none carried over.
+ *
+ * Re-read on every interpretation, so a follow-up that names a new holder
+ * ("actually, make it out to X") replaces the old one; one that names none
+ * keeps whatever the conversation already had.
+ */
+async function resolveStatedHolder(tenantId: string, requestId: string): Promise<string | null> {
+  const [request] = await withTenant(tenantId, (tx) =>
+    tx.select().from(coiRequests).where(eq(coiRequests.id, requestId))
+  );
+  if (!request) return null;
+  if (!request.bodyText) return request.holderId ?? null;
+
+  let stated;
+  try {
+    stated = await withReadingContext({ tenantId, requestId, messageId: request.gmailMessageId }, () =>
+      readHolder(request.bodyText)
+    );
+  } catch (err) {
+    // Reading the holder must never cost the request. Without one, it is asked.
+    console.warn(`[holder] could not read the holder for ${requestId}: ${(err as Error).message}`);
+    return request.holderId ?? null;
+  }
+  if (!stated) return request.holderId ?? null;
+
+  return withTenant(tenantId, async (tx) => {
+    const holderId = await upsertHolder(
+      tx,
+      tenantId,
+      { name: stated.name, addressLines: stated.addressLines, source: "stated", evidence: stated.evidence },
+      stated.email || null
+    );
+    if (holderId !== request.holderId) {
+      await tx.update(coiRequests).set({ holderId }).where(eq(coiRequests.id, requestId));
+      await audit(tx, {
+        tenantId,
+        actorUserId: null,
+        action: "request.holder_read",
+        subjectType: "coi_request",
+        subjectId: requestId,
+        before: { holderId: request.holderId },
+        // The evidence names the phrasing, which is short and already shown to
+        // the reviewer; never the body itself.
+        after: { holderId, evidence: stated.evidence },
+      });
+    }
+    return holderId;
+  });
+}
+
+/**
  * Interpret anything still sitting at `new`.
  *
  * A request can be left uninterpreted by a crash between insert and
@@ -268,7 +349,18 @@ async function interpretPending(
   let needsMatch = 0;
   let generated = 0;
   for (const request of pending) {
-    const result = await interpretAndDraft(tenantId, request.id);
+    // Claim it atomically: only one worker moves a row off `new`. A row another
+    // watcher already claimed is simply not ours.
+    const [claimed] = await withTenant(tenantId, (tx) =>
+      tx
+        .update(coiRequests)
+        .set({ status: "interpreting" })
+        .where(and(eq(coiRequests.id, request.id), eq(coiRequests.status, "new")))
+        .returning({ id: coiRequests.id })
+    );
+    if (!claimed) continue;
+
+    const result = await interpretClaimed(tenantId, request.id);
     if (result.decision === "matched") matched++;
     else needsMatch++;
     if (result.certificateNumber) generated++;
@@ -329,102 +421,11 @@ export async function ingestGmail(
   };
 
   for (const email of emails) {
-    // Our own output, arriving back because we read the mailbox we send from.
-    // Dropped before anything else looks at it: it is neither a request nor an
-    // answer, and treating it as either makes the system talk to itself.
-    if (email.autoGenerated) {
-      result.skipped++;
-      result.ignored.push({
-        subject: email.subject,
-        fromAddr: email.fromAddr,
-        reason: "sent by CertFlow itself",
-      });
-      continue;
-    }
-
-    // Does this continue a conversation we already have? Checked BEFORE
-    // classification, because a reply saying only "MC 1084463" names no
-    // document and would be filtered out as not-a-request — which is true in
-    // isolation and wrong in context.
-    //
-    // Either way it is NOT a new request, so nothing below runs on it.
-    const reply = await handleIfReply(tenantId, email);
-    if (reply) {
-      if (reply.kind === "answered") {
-        result.answered++;
-        if (reply.outcome.resolved) {
-          result.matched++;
-          // No-op unless this agency turned auto-send on. See lib/certificate/autoSend.ts.
-          await maybeAutoSend(tenantId, reply.requestId);
-        } else result.needsMatch++;
-      } else if (reply.kind === "duplicate") {
-        result.duplicates++;
-      } else {
-        // A follow-up is work, so it is counted as work and announced like any
-        // other arrival. `newInThread` also inserted a row; `amended` changed
-        // one that already existed, which is why only the former counts as
-        // inserted.
-        result.followUps++;
-        if (reply.kind === "newInThread") result.inserted++;
-        if (reply.outcome.decision === "matched") result.matched++;
-        else result.needsMatch++;
-        if (reply.outcome.certificateNumber) {
-          result.generated++;
-          await maybeAutoSend(tenantId, reply.requestId);
-        }
-
-        result.requests.push({
-          id: reply.requestId,
-          subject: reply.subject,
-          decision: reply.outcome.decision,
-          clientName: reply.outcome.clientName,
-          certificateNumber: reply.outcome.certificateNumber,
-        });
-        options.onRequestVisible?.();
-      }
-      continue;
-    }
-
-    // Filter first. Anything that is not a request is dropped here and never
-    // reaches the database, so the retention promise in storeEmail only ever
-    // has to cover mail we were actually asked to act on.
-    const verdict = classifyEmail(email);
-    if (!verdict.isRequest) {
-      result.skipped++;
-      result.ignored.push({
-        subject: email.subject,
-        fromAddr: email.fromAddr,
-        reason: verdict.reason,
-      });
-      continue;
-    }
-    result.candidates++;
-
-    const requestId = await storeEmail(tenantId, email);
-    if (!requestId) {
-      result.duplicates++;
-      continue;
-    }
-    result.inserted++;
-
-    const outcome = await interpretAndDraft(tenantId, requestId, () =>
-      options.onRequestVisible?.()
-    );
-    if (outcome.decision === "matched") result.matched++;
-    else result.needsMatch++;
-    if (outcome.certificateNumber) {
-      result.generated++;
-      await maybeAutoSend(tenantId, requestId);
-    }
-    if (outcome.asked) result.clarificationsSent++;
-
-    result.requests.push({
-      id: requestId,
-      subject: email.subject,
-      decision: outcome.decision,
-      clientName: outcome.clientName,
-      certificateNumber: outcome.certificateNumber,
-    });
+    // ONE EMAIL, ONE WORKER. Two watchers reading the same mailbox — a second
+    // process, or a second loop in this one — wait here for each other instead
+    // of both acting. Whoever comes second finds the work recorded (the stored
+    // request, or the audit entry an answer or fold writes) and stops.
+    await withMessageLock(tenantId, email.messageId, () => processEmail(tenantId, email, result, options));
   }
 
   rememberIgnored(tenantId, result.ignored);
@@ -436,6 +437,156 @@ export async function ingestGmail(
   result.generated += swept.generated;
 
   return result;
+}
+
+/**
+ * Hold a database lock named after one message for as long as `fn` runs.
+ *
+ * A Postgres advisory lock on a reserved connection, so it holds across every
+ * process sharing the database — not just this one — and is released even if
+ * the connection drops. Requires a SESSION-mode connection, which DATABASE_URL
+ * already is (the transaction pooler would not keep a session lock).
+ */
+async function withMessageLock<T>(tenantId: string, messageId: string, fn: () => Promise<T>): Promise<T> {
+  if (!messageId) return fn();
+  const key = `certflow:ingest:${tenantId}:${messageId}`;
+  const conn = await sqlClient.reserve();
+  try {
+    await conn`select pg_advisory_lock(hashtextextended(${key}, 0))`;
+    try {
+      return await fn();
+    } finally {
+      await conn`select pg_advisory_unlock(hashtextextended(${key}, 0))`.catch(() => {});
+    }
+  } finally {
+    conn.release();
+  }
+}
+
+/** Handle one fetched email. The body of the ingest loop, run under its message lock. */
+async function processEmail(
+  tenantId: string,
+  email: InboundEmail,
+  result: IngestResult,
+  options: IngestOptions
+): Promise<void> {
+  // Our own output, arriving back because we read the mailbox we send from.
+  // Dropped before anything else looks at it: it is neither a request nor an
+  // answer, and treating it as either makes the system talk to itself.
+  if (email.autoGenerated) {
+    result.skipped++;
+    result.ignored.push({
+      subject: email.subject,
+      fromAddr: email.fromAddr,
+      reason: "sent by CertFlow itself",
+    });
+    return;
+  }
+
+  // Does this continue a conversation we already have? Checked BEFORE
+  // classification, because a reply saying only "MC 1084463" names no
+  // document and would be filtered out as not-a-request — which is true in
+  // isolation and wrong in context.
+  //
+  // Either way it is NOT a new request, so nothing below runs on it.
+  const reply = await handleIfReply(tenantId, email);
+  if (reply) {
+    if (reply.kind === "answered") {
+      result.answered++;
+      if (reply.outcome.resolved) {
+        result.matched++;
+        // No-op unless this agency turned auto-send on. See lib/certificate/autoSend.ts.
+        await maybeAutoSend(tenantId, reply.requestId);
+      } else result.needsMatch++;
+    } else if (reply.kind === "duplicate") {
+      result.duplicates++;
+    } else {
+      // A follow-up is work, so it is counted as work and announced like any
+      // other arrival. `newInThread` also inserted a row; `amended` changed
+      // one that already existed, which is why only the former counts as
+      // inserted.
+      result.followUps++;
+      if (reply.kind === "newInThread") result.inserted++;
+      if (reply.outcome.decision === "matched") result.matched++;
+      else result.needsMatch++;
+      if (reply.outcome.certificateNumber) {
+        result.generated++;
+        await maybeAutoSend(tenantId, reply.requestId);
+      }
+
+      result.requests.push({
+        id: reply.requestId,
+        subject: reply.subject,
+        decision: reply.outcome.decision,
+        clientName: reply.outcome.clientName,
+        certificateNumber: reply.outcome.certificateNumber,
+      });
+      options.onRequestVisible?.();
+    }
+    return;
+  }
+
+  // Filter first. Anything that is not a request is dropped here and never
+  // reaches the database, so the retention promise in storeEmail only ever
+  // has to cover mail we were actually asked to act on.
+  const verdict = classifyEmail(email);
+  if (!verdict.isRequest) {
+    result.skipped++;
+    result.ignored.push({
+      subject: email.subject,
+      fromAddr: email.fromAddr,
+      reason: verdict.reason,
+    });
+    return;
+  }
+  result.candidates++;
+
+  const requestId = await storeEmail(tenantId, email);
+  if (!requestId) {
+    result.duplicates++;
+    return;
+  }
+  result.inserted++;
+
+  const outcome = await interpretClaimed(tenantId, requestId, () => options.onRequestVisible?.());
+  if (outcome.decision === "matched") result.matched++;
+  else result.needsMatch++;
+  if (outcome.certificateNumber) {
+    result.generated++;
+    await maybeAutoSend(tenantId, requestId);
+  }
+  if (outcome.asked) result.clarificationsSent++;
+
+  result.requests.push({
+    id: requestId,
+    subject: email.subject,
+    decision: outcome.decision,
+    clientName: outcome.clientName,
+    certificateNumber: outcome.certificateNumber,
+  });
+}
+
+/**
+ * Interpret a request this worker inserted (born `interpreting`, see
+ * storeEmail). If that fails, hand it back to the sweep as `new` rather than
+ * leaving it parked at "Reading the email…" forever.
+ */
+async function interpretClaimed(
+  tenantId: string,
+  requestId: string,
+  onVisible?: () => void
+): ReturnType<typeof interpretAndDraft> {
+  try {
+    return await interpretAndDraft(tenantId, requestId, onVisible);
+  } catch (err) {
+    await withTenant(tenantId, (tx) =>
+      tx
+        .update(coiRequests)
+        .set({ status: "new" })
+        .where(and(eq(coiRequests.id, requestId), eq(coiRequests.status, "interpreting")))
+    ).catch(() => {});
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -471,8 +622,8 @@ const MIN_INTERVAL_MS = 750;
 
 type Outcome = { ok: true; result: IngestResult } | { ok: false; error: unknown };
 
-const inFlight = new Map<string, Promise<IngestResult>>();
-const lastOutcome = new Map<string, { at: number; outcome: Outcome }>();
+const inFlight = processMap<string, Promise<IngestResult>>("__certflowIngestInFlight");
+const lastOutcome = processMap<string, { at: number; outcome: Outcome }>("__certflowIngestLastOutcome");
 
 export interface SharedIngestResult extends IngestResult {
   /** True when this replays an earlier read rather than reporting a new one. */
@@ -525,7 +676,7 @@ export async function ingestGmailShared(
 // ---------------------------------------------------------------------------
 
 const IGNORED_KEEP = 50;
-const recentlyIgnored = new Map<string, IngestResult["ignored"]>();
+const recentlyIgnored = processMap<string, IngestResult["ignored"]>("__certflowIngestIgnored");
 
 function rememberIgnored(tenantId: string, ignored: IngestResult["ignored"]): void {
   if (!ignored.length) return;
@@ -595,13 +746,26 @@ type ReplyHandling =
  * (tenant, gmail_message_id) decides that race in the database. This is the
  * same key, applied to the path that does not insert a row.
  *
- * Two records say a message was seen, and both are checked:
+ * Three records say a message was seen, and all are checked:
  *   it BECAME a request      -> coi_requests.gmail_message_id
  *   it was FOLDED into one   -> the audit entry that the fold writes
- * The audit log is used rather than a new column because the fold already
- * records the id there, in the same transaction as the change itself.
+ *   it ANSWERED our question -> the audit entry applyAnswer writes
+ * The audit log is used rather than a new column because those steps already
+ * record the id there, in the same transaction as the change itself.
+ *
+ * The answer case is what let a reply be processed twice: once answered, the
+ * request is no longer `awaitingRequester`, so a second look at the same reply
+ * took it for a FOLLOW-UP — a new request, a new certificate, a second email.
  * ------------------------------------------------------------------------
  */
+const SEEN_ACTIONS = [
+  "request.followed_up",
+  "request.clarified",
+  "request.clarification_unclear",
+  "request.holder_supplied",
+  "request.holder_unclear",
+];
+
 async function alreadyIngested(tenantId: string, messageId: string): Promise<boolean> {
   if (!messageId) return false;
 
@@ -613,17 +777,17 @@ async function alreadyIngested(tenantId: string, messageId: string): Promise<boo
       .limit(1);
     if (asRequest) return true;
 
-    const [folded] = await tx
+    const [seen] = await tx
       .select({ seq: auditLog.seq })
       .from(auditLog)
       .where(
         and(
-          eq(auditLog.action, "request.followed_up"),
+          inArray(auditLog.action, SEEN_ACTIONS),
           sql`${auditLog.after}->>'messageId' = ${messageId}`
         )
       )
       .limit(1);
-    return Boolean(folded);
+    return Boolean(seen);
   });
 }
 
@@ -644,7 +808,11 @@ async function handleIfReply(
   if (await alreadyIngested(tenantId, email.messageId)) return { kind: "duplicate" };
 
   if (related.status === "awaitingRequester") {
-    return { kind: "answered", requestId: related.id, outcome: await applyAnswer(tenantId, related, email.body) };
+    return {
+      kind: "answered",
+      requestId: related.id,
+      outcome: await applyAnswer(tenantId, related, email.body, email.messageId),
+    };
   }
 
   /**
@@ -682,10 +850,10 @@ async function handleIfReply(
 
   // Carries the insured forward, so a follow-up that names no company is still
   // drafted rather than landing in front of a reviewer to be re-identified.
-  const requestId = await storeEmail(tenantId, email, { clientId: latest.clientId });
+  const requestId = await storeEmail(tenantId, email, { clientId: latest.clientId, holderId: latest.holderId });
   if (!requestId) return { kind: "duplicate" };
 
-  const outcome = await interpretAndDraft(tenantId, requestId);
+  const outcome = await interpretClaimed(tenantId, requestId);
   return { kind: "newInThread", requestId, subject: email.subject, outcome };
 }
 

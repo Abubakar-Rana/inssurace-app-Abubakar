@@ -16,7 +16,6 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { withTenant, type TenantDb } from "@/lib/db/client";
 import { audit } from "@/lib/audit";
 import { certificates, coiRequests, producers, tenants } from "@/db/schema";
-import { extractHolder, upsertHolder } from "@/lib/matching/holder";
 import { wantsVins } from "@/lib/matching/vinRequest";
 import { loadAssembleInput } from "./load";
 import { assembleCertificate } from "./assemble";
@@ -122,7 +121,10 @@ export async function generateDraft(
 ): Promise<CertificateRecord> {
   const session = { tenantId: ctx.tenantId, userId: ctx.actorUserId } as const;
   return withTenant(session.tenantId, async (tx) => {
-    const [request] = await tx.select().from(coiRequests).where(eq(coiRequests.id, requestId));
+    // FOR UPDATE: two drafts for one request at once — two watchers, a reply
+    // and a poll — used to both see "no draft yet" and both draw a certificate
+    // number. The second now waits here, then finds the first one's draft below.
+    const [request] = await tx.select().from(coiRequests).where(eq(coiRequests.id, requestId)).for("update");
     if (!request) throw new ServiceError("Request not found.", 404);
     if (!request.clientId) {
       throw new ServiceError("Request is not matched to an insured yet.");
@@ -138,34 +140,15 @@ export async function generateDraft(
 
     if (latest?.status === "draft") return toRecord(latest);
 
-    // ---- the holder is read from the email, not from a stored list ----
+    // ---- the holder is the one the requester STATED ----
     //
-    // Re-derived on every draft while the body is still here, because the
-    // holder IS the requester and the email is the only statement of who that
-    // is. Once the body has been purged on the L6 clock the stored id is all
-    // that remains, and that is what a later revision uses.
-    const holderId = request.bodyText
-      ? await upsertHolder(
-          tx,
-          session.tenantId,
-          extractHolder({
-            subject: request.subject,
-            body: request.bodyText,
-            fromAddr: request.fromAddr,
-            fromName: request.fromName,
-          }),
-          request.fromAddr
-        )
-      : request.holderId;
-
-    if (!holderId) {
-      throw new ServiceError(
-        "No certificate holder: the request has no signature to read and no stored holder."
-      );
-    }
-    if (holderId !== request.holderId) {
-      await tx.update(coiRequests).set({ holderId }).where(eq(coiRequests.id, requestId));
-    }
+    // Linked when the request arrived (lib/gmail/ingest.ts → resolveStatedHolder)
+    // or from the requester's answer to our question (clarifyService.ts) —
+    // never re-derived here from the signature, which printed the SENDER on a
+    // certificate whose email named a different holder. None stated and none
+    // supplied: the draft carries an EMPTY holder box for a reviewer to fill
+    // in, and auto-send refuses it (lib/certificate/autoSend.ts).
+    const holderId = request.holderId ?? null;
 
     // Did the requester ask for vehicle identification numbers? Read from the
     // whole email, and defaulting to "no" when the body is gone.
@@ -322,7 +305,9 @@ export async function approve(
   pdfSha256: string
 ): Promise<CertificateRecord> {
   return withTenant(session.tenantId, async (tx) => {
-    const [row] = await tx.select().from(certificates).where(eq(certificates.id, certificateId));
+    // FOR UPDATE, so two approvals of one draft cannot both pass the check
+    // below: the second waits, then sees "issued" and is refused.
+    const [row] = await tx.select().from(certificates).where(eq(certificates.id, certificateId)).for("update");
     if (!row) throw new ServiceError("Certificate not found.", 404);
     if (row.status !== "draft") throw new ServiceError(`Certificate is already ${row.status}.`, 409);
 

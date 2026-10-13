@@ -23,6 +23,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { llmConfigured, llmModel, llmTimeoutMs } from "./config";
+import { noteLlmOutcome } from "./health";
 
 export interface ReadRequest {
   /** Fixed instructions. Same for every call of a given reader. */
@@ -87,6 +88,8 @@ export async function readJson(req: ReadRequest): Promise<ReadResult | null> {
       // Never scrape prose for a number.
       output_config: { format: { type: "json_schema", schema: req.schema } },
     });
+    // The API answered: whatever the content, the model is reachable.
+    noteLlmOutcome(true);
 
     // A refusal is not an error, but it is not an answer either.
     if (response.stop_reason === "refusal") {
@@ -118,6 +121,9 @@ export async function readJson(req: ReadRequest): Promise<ReadResult | null> {
     // Everything lands here: network, 429, 500, a schema the API rejected, a
     // body that would not parse. All of them mean the same thing to the caller.
     console.warn(`[llm] ${req.label}: ${(err as Error).message}`);
+    // An API failure is an outage the agency must SEE (lib/llm/health.ts); an
+    // answer that would not parse is not.
+    if (err instanceof Anthropic.APIError) noteLlmOutcome(false, err);
     return null;
   }
 }

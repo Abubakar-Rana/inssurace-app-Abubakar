@@ -76,6 +76,26 @@ export default function AppShell({ children, inboxCount = 0 }) {
   const store = useStore();
   const [user, setUser] = useState(null);
   const [mailbox, setMailbox] = useState(null);
+  const [llm, setLlm] = useState(null);
+
+  // AI reading fails SILENTLY by design — every reader falls back to its rules
+  // — so whether it is working has to be asked, and shown. Re-asked every two
+  // minutes (the server caches the answer) so a fix clears the banner unaided.
+  useEffect(() => {
+    if (!user) return;
+    let stopped = false;
+    const check = () =>
+      fetch("/api/llm/status")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((s) => !stopped && s && setLlm(s))
+        .catch(() => {});
+    check();
+    const timer = setInterval(check, 120_000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [user]);
 
   useEffect(() => {
     fetch("/api/auth/session")
@@ -212,6 +232,7 @@ export default function AppShell({ children, inboxCount = 0 }) {
             inside it, so no outer bar appears there — but a document page is
             taller than the window and must be able to move. `overflow-hidden`
             here silently trapped the certificate pages. */}
+        <LlmBanner llm={llm} isAdmin={user?.role === "admin"} />
         {pathname === "/inbox" && <InboxBanner mailbox={mailbox} />}
         <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
       </div>
@@ -220,6 +241,39 @@ export default function AppShell({ children, inboxCount = 0 }) {
           that happened without a reviewer has to stay in the corner of the
           screen, not scroll away with the list it refers to. */}
       <Toasts />
+    </div>
+  );
+}
+
+/**
+ * AI reading is down. On EVERY screen, for everyone, because what it changes is
+ * invisible otherwise: requests still arrive and still look normal, but fewer
+ * are identified automatically and more wait for a person. "Off" by choice is
+ * not a fault and shows nothing here (Settings shows it).
+ */
+function LlmBanner({ llm, isAdmin }) {
+  if (!llm || llm.state !== "down") return null;
+  return (
+    <div
+      role="alert"
+      className="no-print flex flex-wrap items-center gap-3 border-b border-red-200 bg-red-50 px-[22px] py-3 text-[13px] text-red-800"
+    >
+      <span className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-full bg-red-600 text-[11px] font-bold text-white">
+        !
+      </span>
+      <span className="min-w-0 flex-1">
+        <strong className="font-semibold">AI reading is not working.</strong> CertFlow is running on its fallback
+        rules, so fewer requests are read automatically and more will wait for a person.{" "}
+        <span className="text-red-700">{llm.reason}</span>
+      </span>
+      {isAdmin && (
+        <Link
+          href="/settings?tab=automation"
+          className="rounded-lg bg-red-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-red-700"
+        >
+          Check in Settings
+        </Link>
+      )}
     </div>
   );
 }

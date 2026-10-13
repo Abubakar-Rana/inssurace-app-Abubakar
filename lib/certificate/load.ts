@@ -23,7 +23,8 @@ import type { Certificate } from "./types";
 export interface LoadOptions {
   tenantId: string;
   clientId: string;
-  holderId: string;
+  /** Null when no holder was stated yet: the holder box is left empty for a reviewer. */
+  holderId: string | null;
   certificateNumber: string;
   issueDate: string; // "MM/DD/YYYY"
   authorizedRep: string;
@@ -62,11 +63,13 @@ export async function loadAssembleInput(
       .where(and(eq(clients.id, opts.clientId), eq(clients.tenantId, opts.tenantId)));
     if (!client) throw new Error(`Client ${opts.clientId} not found for this tenant.`);
 
-    const [holder] = await tx
-      .select()
-      .from(certificateHolders)
-      .where(and(eq(certificateHolders.id, opts.holderId), eq(certificateHolders.tenantId, opts.tenantId)));
-    if (!holder) throw new Error(`Certificate holder ${opts.holderId} not found for this tenant.`);
+    const [holder] = opts.holderId
+      ? await tx
+          .select()
+          .from(certificateHolders)
+          .where(and(eq(certificateHolders.id, opts.holderId), eq(certificateHolders.tenantId, opts.tenantId)))
+      : [null];
+    if (opts.holderId && !holder) throw new Error(`Certificate holder ${opts.holderId} not found for this tenant.`);
 
     const [producer] = await tx
       .select()
@@ -123,7 +126,7 @@ export async function loadAssembleInput(
         email: producer.email ?? "",
       },
       insured: { name: client.legalName, address: client.addressLines },
-      holder: { name: holder.name, address: holder.addressLines },
+      holder: holder ? { name: holder.name, address: holder.addressLines } : { name: "", address: "" },
       policies: policyRows as PolicyInput[],
       vehicles: vehicleRows,
       // Per-policy notes ride on the policy rows; the assembler emits them in
